@@ -28,13 +28,13 @@ variable "tags" {
 variable "enable_aws" {
   description = "Whether to instantiate the AWS module. False until AWS credentials/trial exist."
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "enable_gcp" {
   description = "Whether to instantiate the GCP module. False until GCP credentials/trial exist."
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "aws_region" {

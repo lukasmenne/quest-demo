@@ -64,3 +64,18 @@ I added a placeholder for SECRET_WORD while it gets deployed before I can get th
 --- 2026-08-03 21:04:35 -0500 ---
 I removed the PR comment for the security scan, it was too bulky, i'll list it as a future improvement I would add after
 
+--- 2026-08-03 21:08:39 -0500 ---
+Just watch the pr checks
+
+--- 2026-08-03 21:11:37 -0500 ---
+Add branch protections for main
+
+--- 2026-08-03 21:12:58 -0500 ---
+Allow bypass I’m the only user
+
+--- 2026-08-03 21:15:07 -0500 ---
+Add code owners requirement
+
+--- 2026-08-04 08:23:22 -0500 ---
+review the plan from the pc check
+

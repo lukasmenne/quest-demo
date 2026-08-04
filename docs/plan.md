@@ -30,7 +30,8 @@ on merge.
 - **SECRET_WORD**: GitHub secret → `TF_VAR_secret_word` → each cloud's secret store → container env.
 - **No plan artifact** — plan on PR for review, `apply -auto-approve` on merge. (Revised: the
   earlier gpg-encrypted-artifact flow was dropped as unnecessary complexity.)
-- **Trivy scan, comment-only** (non-blocking).
+- **Trivy scan, non-blocking** (`exit-code: 0`). Findings go to the Security tab via SARIF; no
+  PR comment (see Phase 2 — dropped as too bulky, listed there as a future improvement).
 - **All three clouds written as first-class now**, though AWS/GCP trials do not exist yet.
 
 ## Constraints discovered (these drive the implementation)
@@ -126,8 +127,15 @@ curl -H 'X-Forwarded-Proto: https' localhost:3000/tls
 
 **On `pull_request`** (paths: `src/**`, `bin/**`, `package*.json`, `Dockerfile`):
 build `linux/amd64` with `docker/build-push-action` (`push: false`, `load: true`), scan with
-`aquasecurity/trivy-action`, post a sticky PR comment with the findings table, upload SARIF to the
-Security tab. `exit-code: 0` throughout — informational only, per your choice.
+`aquasecurity/trivy-action`, upload SARIF to the Security tab. `exit-code: 0` — informational
+only, per your choice.
+
+> **Revised: no sticky PR comment for scan findings.** Originally planned (full table dumped to
+> a sticky comment via `marocchino/sticky-pull-request-comment`, truncated to fit GitHub's
+> 65,536-char comment limit). Dropped after seeing it live — even truncated, the full-severity
+> table is too bulky to be a useful PR comment. Findings are still fully available via the SARIF
+> upload to the Security tab. **Future improvement**: a right-sized comment (e.g. HIGH/CRITICAL
+> only, or just a count-by-severity summary linking to the Security tab) instead of the raw table.
 
 **On `push` to `main`**: build and push `ghcr.io/lukasmenne/quest-demo` tagged `sha-<short>` and
 `latest`. Uses `GITHUB_TOKEN` with `packages: write`.

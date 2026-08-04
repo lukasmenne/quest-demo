@@ -55,3 +55,6 @@ regarding the azure oidc, GitHub requires id's in there now too,
 like this: repo:lukasmenne@*****/quest-demo@*****
 
 
+--- 2026-08-03 20:37:15 -0500 ---
+watch https://github.com/lukasmenne/quest-demo/pull/1 for pr checks
+

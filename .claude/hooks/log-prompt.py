@@ -6,6 +6,7 @@ any error is swallowed so a logging problem can't block the session.
 """
 import json
 import os
+import re
 import sys
 from datetime import datetime
 
@@ -13,9 +14,17 @@ from datetime import datetime
 PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 LOG_PATH = os.path.join(PROJECT_DIR, "docs", "prompts.txt")
 
+# Strips IDE-injected file-reference context (opened file, selected lines) that the harness
+# can prepend/append to the prompt text -- only the user's own words get logged.
+FILE_REFERENCE_TAGS = re.compile(
+    r"<ide_opened_file>.*?</ide_opened_file>|<ide_selection>.*?</ide_selection>",
+    re.DOTALL,
+)
+
 
 def main() -> None:
     prompt = json.load(sys.stdin).get("prompt", "")
+    prompt = FILE_REFERENCE_TAGS.sub("", prompt).strip()
     if not prompt.strip():
         return
 

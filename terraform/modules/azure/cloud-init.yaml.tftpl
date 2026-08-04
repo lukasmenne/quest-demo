@@ -1,0 +1,8 @@
+#cloud-config
+package_update: true
+packages:
+  - docker.io
+
+runcmd:
+  - systemctl enable --now docker
+  - docker run -d --name quest --restart unless-stopped --log-driver journald -p ${app_port}:${app_port} -e SECRET_WORD='${secret_word}' ${image}

@@ -1,0 +1,54 @@
+------
+I'm going an exercise (called Quest) for an interview process. As part of that I want you to capture every prompt that I provide for you in a file under docs/prompts.txt.
+
+------------------------
+I'm going an exercise (called Quest) for an interview process. As part of that I want you to capture every prompt that I provide for you in a file under docs/prompts.txt.
+
+For the exercise,
+First, I'm going to generate a simple node docker file to run this app in @src/
+I will add that to ghcr.io/lukasmenne/quest-demo using github actions workflow to build/scan the image on pull requests, and push the comment of the results to the PR, then on merge, publish the image to ghcr
+
+Then, I'm going to deploy this app to 3 cloud providers, Azure (container app), AWS (ECS?), and Google (Cloud Run?).
+
+Each deployment should have a load balancer in front of the web app and a TLS cert generated and utilized to the endpoint, make sure logging is in place.
+
+Also setup a cicd workflow with github actions for deploying this terraform:
+simple layout for PR updates would be azure oidc login, terraform init, terraform fmt, terraform validate, plan, then summarize the output of the plan ( ie. 1 to add, 0 to change, 0 to delete )  and comment that pack to the PR for visibility, upload the plan as an artifact for use in the deployment.
+
+layout for the PR merge is azure oidc login, terraform init, terraform apply --auto-approve
+
+ask any clarifying questions to make sure this is all covered.
+-----------------------------
+
+question responses:
+Your questions have been answered: "Do you own a DNS domain you can delegate to these clouds for TLS certs?"="No domain — use built-in FQDNs", "How should the Terraform be structured, given one module can't span three clouds?"="Three sibling modules", "Where should Terraform state live? CI needs remote state to plan on PR and apply on merge."="Azure Storage for all three", "How should SECRET_WORD reach the container? (bin/006 reads it from the environment)"="GitHub secret → TF var → cloud secret store". You can now continue with these answers in mind.
+
+question responses:
+The user answered: "Is lukasmenne/quest-azure public or private? (Terraform plan files contain sensitive var values in cleartext, and Actions artifacts on public repos are downloadable by anyone.)"="currently private, but I will make it public once complete", "You asked to upload the plan as an artifact and also to run `apply --auto-approve` on merge. Those are two different models — which do you want?"="Encrypt the plan artifact, apply it", "How should the image scan behave on a PR?"="Trivy, comment only (non-blocking)", "AWS and GCP accounts don't exist yet (free trials pending). How should I scope the implementation plan?"="All three fully now". Read the answers carefully — they may request clarification, changes, or that you not proceed — and follow what they actually say.
+
+================
+I want to setup OIDC for AWS/GCP for this App's github actions workflow to run terraform. Help me build it out as bootstrap terraform commands, separate from the rest of the modules, it will be a onetime run. separate files to run once auth'd for each
+
+==============
+take out the gpg steps and simplify the plan / apply
+
+==============
+
+copy the plan from this other location I was previously using C:\Users\lukas\GitHub\quest-demo\.claude
+
+==============
+yeah what else is needed for you to fully complete the plan?
+
+gcp project: project-db8ba5d7-2499-46a0-b86
+aws accountid: 302186542540
+
+==============
+change git remote from quest-azure to quest-demo for the repo name
+
+--- 2026-08-03 19:04:38 -0500 ---
+<ide_opened_file>The user opened the file /home/lukas/github/quest-demo/docs/prompts.txt in the IDE. This may or may not be related to the current task.</ide_opened_file>
+lets implement /home/lukas/github/quest-demo/docs/plan.md
+
+--- 2026-08-03 19:34:12 -0500 ---
+Commit
+

@@ -61,21 +61,6 @@ jobs:
         with:
           sarif_file: trivy-results.sarif
 
-      - name: Truncate report to fit GitHub's comment size limit
-        run: |
-          LIMIT=60000
-          if [ "$(wc -c < trivy-report.txt)" -gt "$LIMIT" ]; then
-            { head -c "$LIMIT" trivy-report.txt; printf '\n\n... truncated — see the full table in this run'\''s logs, or the SARIF results in the Security tab.\n'; } > trivy-comment.txt
-          else
-            cp trivy-report.txt trivy-comment.txt
-          fi
-
-      - name: Comment findings on PR
-        uses: marocchino/sticky-pull-request-comment@v3
-        with:
-          header: trivy-scan
-          path: trivy-comment.txt
-
   build-and-push:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest

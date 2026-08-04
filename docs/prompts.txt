@@ -61,4 +61,6 @@ watch https://github.com/lukasmenne/quest-demo/pull/1 for pr checks
 --- 2026-08-03 20:46:16 -0500 ---
 1. I corrected the variables names
 I added a placeholder for SECRET_WORD while it gets deployed before I can get the real value.
+--- 2026-08-03 21:04:35 -0500 ---
+I removed the PR comment for the security scan, it was too bulky, i'll list it as a future improvement I would add after
 

@@ -24,7 +24,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: write
       security-events: write
     steps:
       - uses: actions/checkout@v7
@@ -40,15 +39,7 @@ jobs:
           load: true
           tags: quest:pr-${{ github.event.pull_request.number }}
 
-      - name: Scan image (table, for the PR comment)
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          image-ref: quest:pr-${{ github.event.pull_request.number }}
-          format: table
-          exit-code: "0"
-          output: trivy-report.txt
-
-      - name: Scan image (SARIF, for the Security tab)
+      - name: Scan image
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: quest:pr-${{ github.event.pull_request.number }}

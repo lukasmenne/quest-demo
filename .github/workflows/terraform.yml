@@ -19,20 +19,19 @@ defaults:
     working-directory: env/dev
 
 env:
+  # Client/subscription/tenant IDs and resource names below are identifiers, not credentials —
+  # OIDC means there's no client secret to protect, so these are GitHub Actions *variables*
+  # (vars), not secrets. Only actual credential material (SECRET_WORD, AWS keys, GCP service
+  # account JSON) uses secrets.
   ARM_USE_OIDC: "true"
-  ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
-  ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
-  ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
-  TF_VAR_client_id: ${{ secrets.ARM_CLIENT_ID }}
-  TF_VAR_subscription_id: ${{ secrets.ARM_SUBSCRIPTION_ID }}
-  TF_VAR_tenant_id: ${{ secrets.ARM_TENANT_ID }}
+  ARM_CLIENT_ID: ${{ vars.ARM_CLIENT_ID }}
+  ARM_SUBSCRIPTION_ID: ${{ vars.ARM_SUBSCRIPTION_ID }}
+  ARM_TENANT_ID: ${{ vars.ARM_TENANT_ID }}
+  TF_VAR_client_id: ${{ vars.ARM_CLIENT_ID }}
+  TF_VAR_subscription_id: ${{ vars.ARM_SUBSCRIPTION_ID }}
+  TF_VAR_tenant_id: ${{ vars.ARM_TENANT_ID }}
   TF_VAR_secret_word: ${{ secrets.SECRET_WORD }}
   TF_VAR_image: ghcr.io/lukasmenne/quest-demo:latest
-  # Required even while enable_aws/enable_gcp are false — Terraform configures every declared
-  # provider block regardless of whether count-gated resources use it. See docs/plan.md Phase 4.
-  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-  GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
 
 jobs:
   plan:
@@ -43,22 +42,44 @@ jobs:
       id-token: write
       pull-requests: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: azure/login@v2
         with:
-          client-id: ${{ secrets.ARM_CLIENT_ID }}
-          tenant-id: ${{ secrets.ARM_TENANT_ID }}
-          subscription-id: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+          client-id: ${{ vars.ARM_CLIENT_ID }}
+          tenant-id: ${{ vars.ARM_TENANT_ID }}
+          subscription-id: ${{ vars.ARM_SUBSCRIPTION_ID }}
 
-      - uses: hashicorp/setup-terraform@v3
+      # Real AWS auth once bootstrap/aws has run and AWS_ROLE_ARN is set (see its output). A
+      # no-op until then, matching the "enable_aws flips on, no code changes needed" design.
+      - name: Configure AWS credentials (OIDC)
+        if: ${{ vars.AWS_ROLE_ARN != '' }}
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+
+      # GCP: mutually exclusive with the placeholder step below — real WIF creds once
+      # bootstrap/gcp has run and GCP_WORKLOAD_IDENTITY_PROVIDER is set.
+      - name: Configure GCP credentials (OIDC)
+        if: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER != '' }}
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - name: Use placeholder GCP credentials (until GCP OIDC is wired)
+        if: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER == '' }}
+        run: echo "GOOGLE_CREDENTIALS=${{ secrets.GOOGLE_CREDENTIALS }}" >> "$GITHUB_ENV"
+
+      - uses: hashicorp/setup-terraform@v4
 
       - name: terraform init
         run: |
           terraform init \
-            -backend-config="resource_group_name=${{ secrets.AZURE_TFSTATE_RESOURCE_GROUP }}" \
-            -backend-config="storage_account_name=${{ secrets.AZURE_TFSTATE_STORAGE_ACCOUNT }}" \
-            -backend-config="container_name=${{ secrets.AZURE_TFSTATE_CONTAINER }}" \
+            -backend-config="resource_group_name=${{ vars.AZURE_TFSTATE_RESOURCE_GROUP }}" \
+            -backend-config="storage_account_name=${{ vars.AZURE_TFSTATE_STORAGE_ACCOUNT }}" \
+            -backend-config="container_name=${{ vars.AZURE_TFSTATE_CONTAINER }}" \
             -backend-config="key=quest.tfstate"
 
       - name: terraform fmt
@@ -90,7 +111,7 @@ jobs:
           } > comment.md
 
       - name: Comment plan on PR
-        uses: marocchino/sticky-pull-request-comment@v2
+        uses: marocchino/sticky-pull-request-comment@v3
         with:
           header: terraform-plan
           path: env/dev/comment.md
@@ -106,22 +127,36 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: azure/login@v2
         with:
-          client-id: ${{ secrets.ARM_CLIENT_ID }}
-          tenant-id: ${{ secrets.ARM_TENANT_ID }}
-          subscription-id: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+          client-id: ${{ vars.ARM_CLIENT_ID }}
+          tenant-id: ${{ vars.ARM_TENANT_ID }}
+          subscription-id: ${{ vars.ARM_SUBSCRIPTION_ID }}
 
-      - uses: hashicorp/setup-terraform@v3
+      - name: Configure AWS credentials (OIDC)
+        if: ${{ vars.AWS_ROLE_ARN != '' }}
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Configure GCP credentials (OIDC)
+        if: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER != '' }}
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - uses: hashicorp/setup-terraform@v4
 
       - name: terraform init
         run: |
           terraform init \
-            -backend-config="resource_group_name=${{ secrets.AZURE_TFSTATE_RESOURCE_GROUP }}" \
-            -backend-config="storage_account_name=${{ secrets.AZURE_TFSTATE_STORAGE_ACCOUNT }}" \
-            -backend-config="container_name=${{ secrets.AZURE_TFSTATE_CONTAINER }}" \
+            -backend-config="resource_group_name=${{ vars.AZURE_TFSTATE_RESOURCE_GROUP }}" \
+            -backend-config="storage_account_name=${{ vars.AZURE_TFSTATE_STORAGE_ACCOUNT }}" \
+            -backend-config="container_name=${{ vars.AZURE_TFSTATE_CONTAINER }}" \
             -backend-config="key=quest.tfstate"
 
       - name: terraform apply

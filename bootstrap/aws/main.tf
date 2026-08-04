@@ -37,13 +37,14 @@ data "aws_iam_policy_document" "github_actions_trust" {
       values   = ["sts.amazonaws.com"]
     }
 
-    # Restrict to pushes on main and any pull_request run in this repo.
+    # Restrict to pushes on main and any pull_request run in this repo. Uses the immutable
+    # subject format (owner/repo carry their numeric IDs) — see github_owner_id/github_repo_id.
     condition {
       test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
       values = [
-        "repo:${var.github_org}/${var.github_repo}:ref:refs/heads/main",
-        "repo:${var.github_org}/${var.github_repo}:pull_request",
+        "repo:${var.github_org}@${var.github_owner_id}/${var.github_repo}@${var.github_repo_id}:ref:refs/heads/main",
+        "repo:${var.github_org}@${var.github_owner_id}/${var.github_repo}@${var.github_repo_id}:pull_request",
       ]
     }
   }

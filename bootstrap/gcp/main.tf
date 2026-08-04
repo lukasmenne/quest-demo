@@ -34,7 +34,10 @@ resource "google_iam_workload_identity_pool_provider" "github" {
     "attribute.event_name" = "assertion.event_name"
   }
 
-  # Restrict to pushes on main and any pull_request run in this repo.
+  # Restrict to pushes on main and any pull_request run in this repo. Uses the `repository`
+  # claim (plain "owner/repo"), not `sub` — unlike AWS/Azure, this is unaffected by GitHub's
+  # April 2026 immutable subject claims change, since `repository` was always a separate,
+  # stable claim rather than a substring of `sub`.
   attribute_condition = "assertion.repository == \"${var.github_org}/${var.github_repo}\" && (assertion.ref == \"refs/heads/main\" || assertion.event_name == \"pull_request\")"
 
   oidc {

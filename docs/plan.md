@@ -260,25 +260,52 @@ current state and applies in one step.
 
 ## Prerequisites you must do outside this repo
 
-1. Azure: storage account + container for state; federated credentials on the app registration
-   subject `repo:lukasmenne/quest-demo:pull_request` and
-   `repo:lukasmenne/quest-demo:ref:refs/heads/main`; Contributor on the subscription and Storage
-   Blob Data Contributor on the state account. If credentials were already created against
-   `quest-azure`, the subjects must be updated — GitHub redirects the repo URL but OIDC subject
-   claims are matched literally and will silently fail to authenticate.
-2. GitHub secrets: `SECRET_WORD`, the existing `ARM_*` values, and the state storage account's
-   coordinates so `.github/workflows/terraform.yml` can pass them as `-backend-config`:
-   `AZURE_TFSTATE_RESOURCE_GROUP`, `AZURE_TFSTATE_STORAGE_ACCOUNT`, `AZURE_TFSTATE_CONTAINER`.
-3. GitHub secrets needed **even before the AWS/GCP trials exist**, so `terraform plan`/`apply`
-   don't fail configuring those providers while `enable_aws`/`enable_gcp` are `false` (see Phase
-   4): placeholder `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` (any well-formed values — never
-   validated while `enable_aws = false`), and a placeholder `GOOGLE_CREDENTIALS` service-account
-   JSON (well-formed JSON with fake key material is sufficient). Swap in real values when each
-   trial exists; no workflow or Terraform changes needed.
+Codified as one-time Terraform in `bootstrap/{azure,aws,gcp}/` (each run once, by hand, with
+real admin-level credentials — not via the pipeline, which is what these bootstraps exist to set
+up in the first place). `bootstrap/azure/` creates the state storage account/container **and**
+the GitHub Actions OIDC app registration + federated credentials + role assignments in one pass,
+so it must be applied before `env/dev`'s `backend "azurerm"` has anywhere to point.
+
+> **AWS credential gotcha, hit and fixed while first running `bootstrap/aws`:** if `aws sts
+> get-caller-identity` works but `terraform plan` fails with `No valid credential sources found` /
+> `no EC2 IMDS role found`, check `~/.aws/config` for a `login_session` key. That's the AWS CLI's
+> browser-based root login flow (`aws configure login`) — botocore (the CLI) knows how to read its
+> cached session, but the Go AWS SDK Terraform's provider uses does not, so it falls through the
+> whole credential chain and finds nothing. Fix: `eval "$(aws configure export-credentials
+> --format env)"` before running Terraform, which bridges the CLI's session into
+> `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`/`AWS_SESSION_TOKEN` env vars Terraform can read.
+
+1. Azure: `bootstrap/azure` creates the state storage account/container and the app registration
+   with federated credentials on subjects
+   `repo:lukasmenne@81255942/quest-demo@1322257032:pull_request` and
+   `repo:lukasmenne@81255942/quest-demo@1322257032:ref:refs/heads/main` — **the immutable subject
+   format** (owner/repo carry their numeric GitHub IDs), not the plain `repo:OWNER/REPO:...` form.
+   Confirmed against this repo's actual Azure AD federated-credential UI, which now requires
+   Organization ID/Repository ID fields and computes the subject from them. `bootstrap/aws` uses
+   the same immutable format in its IAM trust policy; `bootstrap/gcp`'s WIF condition matches on
+   the separate `repository` claim instead of `sub`, so it's unaffected either way.
+2. GitHub Actions **variables** (`vars`, not secrets — these are identifiers, not credentials;
+   OIDC means there's no client secret to protect): `ARM_CLIENT_ID`, `ARM_SUBSCRIPTION_ID`,
+   `ARM_TENANT_ID`, `AZURE_TFSTATE_RESOURCE_GROUP`, `AZURE_TFSTATE_STORAGE_ACCOUNT`,
+   `AZURE_TFSTATE_CONTAINER` (all from `bootstrap/azure` outputs), plus `AWS_ROLE_ARN` (from
+   `bootstrap/aws`) and `GCP_WORKLOAD_IDENTITY_PROVIDER` / `GCP_SERVICE_ACCOUNT` (from
+   `bootstrap/gcp`) — `.github/workflows/terraform.yml` already has the AWS/GCP OIDC login steps
+   wired in, gated on `vars.AWS_ROLE_ARN`/`vars.GCP_WORKLOAD_IDENTITY_PROVIDER` being non-empty,
+   so they activate automatically the moment those variables are set — no workflow changes
+   needed when each trial goes live.
+3. GitHub **secrets** (actual credential material): `SECRET_WORD`. Also needed **even before the
+   AWS/GCP trials exist**, so `terraform plan`/`apply` don't fail configuring those providers
+   while `enable_aws`/`enable_gcp` are `false` (see Phase 4): placeholder `AWS_ACCESS_KEY_ID` /
+   `AWS_SECRET_ACCESS_KEY` (any well-formed values — never validated while `enable_aws = false`),
+   and a placeholder `GOOGLE_CREDENTIALS` service-account JSON (well-formed JSON with fake key
+   material is sufficient — used only until `GCP_WORKLOAD_IDENTITY_PROVIDER` is set, at which
+   point the real WIF login step takes over and this is no longer read).
 4. After first image push: set the GHCR package public.
-5. When trials exist: AWS OIDC provider + role, GCP Workload Identity Federation + service
-   account — replace the placeholder AWS/GCP secrets above with the real ones, and flip
-   `enable_aws`/`enable_gcp` to `true`.
+5. When trials exist: run `bootstrap/aws`/`bootstrap/gcp` for real, then set the `AWS_ROLE_ARN` /
+   `GCP_WORKLOAD_IDENTITY_PROVIDER` / `GCP_SERVICE_ACCOUNT` variables from their outputs and flip
+   `enable_aws`/`enable_gcp` to `true`. The placeholder `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`
+   secrets can stay (harmless placeholders, superseded by the OIDC-assumed role for later steps)
+   or be removed.
 
 ## Verification
 

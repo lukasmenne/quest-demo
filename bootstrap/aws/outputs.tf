@@ -1,5 +1,5 @@
 output "github_actions_role_arn" {
-  description = "Put this in the AWS_ROLE_ARN GitHub Actions secret/variable, used with aws-actions/configure-aws-credentials."
+  description = "Put this in the AWS_ROLE_ARN GitHub Actions variable (not a secret — an IAM role ARN isn't sensitive on its own), used with aws-actions/configure-aws-credentials."
   value       = aws_iam_role.github_actions_terraform.arn
 }
 

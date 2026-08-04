@@ -46,9 +46,12 @@ aws accountid: 302186542540
 change git remote from quest-azure to quest-demo for the repo name
 
 --- 2026-08-03 19:04:38 -0500 ---
-<ide_opened_file>The user opened the file /home/lukas/github/quest-demo/docs/prompts.txt in the IDE. This may or may not be related to the current task.</ide_opened_file>
+
 lets implement /home/lukas/github/quest-demo/docs/plan.md
 
---- 2026-08-03 19:34:12 -0500 ---
-Commit
+--- 2026-08-03 20:04:32 -0500 ---
+regarding the azure oidc, GitHub requires id's in there now too,
+
+like this: repo:lukasmenne@*****/quest-demo@*****
+
 

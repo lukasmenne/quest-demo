@@ -1,11 +1,11 @@
 resource "azurerm_resource_group" "quest" {
   name     = "quest"
-  location = "southcentralus"
+  location = "denmarkeast"
   tags     = var.tags
 }
 
 resource "azurerm_log_analytics_workspace" "quest" {
-  name                = "log-quest-scus"
+  name                = "log-quest-dnk"
   location            = azurerm_resource_group.quest.location
   resource_group_name = azurerm_resource_group.quest.name
   sku                 = "PerGB2018"
@@ -36,17 +36,21 @@ resource "azurerm_network_security_group" "quest" {
   resource_group_name = azurerm_resource_group.quest.name
   tags                = var.tags
 
-  # Standard LB is pass-through, so the VM sees Front Door's real source IP.
-  # Only Front Door's edge IP space may reach the app port.
+  # Standard LB is pass-through, so the VM sees the real source IP of whatever hits it.
+  # Ideally this would be locked to the CDN edge's IP space the way the previous Front
+  # Door design was (service tag AzureFrontDoor.Backend), but Azure CDN Standard from
+  # Microsoft (classic) doesn't have a documented/guaranteed service tag of its own, and
+  # guessing wrong here would silently break the deployment (health probes + all traffic
+  # dropped). Left open; origin lockdown is noted as a follow-up in docs/plan.md.
   security_rule {
-    name                       = "AllowFrontDoorInbound"
+    name                       = "AllowAppInbound"
     priority                   = 100
     direction                  = "Inbound"
     access                     = "Allow"
     protocol                   = "Tcp"
     source_port_range          = "*"
     destination_port_range     = tostring(var.app_port)
-    source_address_prefix      = "AzureFrontDoor.Backend"
+    source_address_prefix      = "Internet"
     destination_address_prefix = "*"
   }
 }
@@ -97,6 +101,10 @@ resource "azurerm_lb_rule" "quest" {
   frontend_ip_configuration_name = "frontend"
   backend_address_pool_ids       = [azurerm_lb_backend_address_pool.quest.id]
   probe_id                       = azurerm_lb_probe.quest.id
+
+  # The outbound rule below reuses this same frontend IP for SNAT; Azure requires
+  # the load-balancing rule to explicitly cede outbound SNAT to it.
+  disable_outbound_snat = true
 }
 
 # Gives the VMSS SNAT'd outbound internet access (apt/docker pull) without a NAT Gateway.
@@ -191,10 +199,6 @@ resource "azurerm_monitor_diagnostic_setting" "lb" {
     category = "LoadBalancerAlertEvent"
   }
 
-  enabled_log {
-    category = "LoadBalancerProbeHealthStatus"
-  }
-
   enabled_metric {
     category = "AllMetrics"
   }
@@ -234,58 +238,56 @@ resource "azurerm_monitor_data_collection_rule_association" "quest" {
   data_collection_rule_id = azurerm_monitor_data_collection_rule.quest.id
 }
 
-# --- Front Door (TLS + managed cert on the default *.azurefd.net domain) ---
+# --- CDN (TLS + managed cert on the default *.azureedge.net domain) ---
+#
+# Front Door Standard/Premium is rejected outright on Free Trial/Student subscriptions
+# ("Free Trial and Student account is forbidden for Azure Frontdoor resources"). Azure CDN
+# Standard from Microsoft (the classic, non-Front-Door SKU) is the only CDN tier Microsoft
+# documents as available to those subscription types, so it's used here instead. Its default
+# endpoint hostname gets a Microsoft-managed HTTPS certificate with no extra configuration.
 
-resource "azurerm_cdn_frontdoor_profile" "quest" {
-  name                = "quest-fd"
+resource "azurerm_cdn_profile" "quest" {
+  name                = "quest-cdn"
+  location            = "global"
   resource_group_name = azurerm_resource_group.quest.name
-  sku_name            = "Standard_AzureFrontDoor"
+  sku                 = "Standard_Microsoft"
   tags                = var.tags
 }
 
-resource "azurerm_cdn_frontdoor_endpoint" "quest" {
-  name                     = "quest-app"
-  cdn_frontdoor_profile_id = azurerm_cdn_frontdoor_profile.quest.id
-  tags                     = var.tags
-}
+resource "azurerm_cdn_endpoint" "quest" {
+  name                = "quest-app"
+  profile_name        = azurerm_cdn_profile.quest.name
+  location            = "global"
+  resource_group_name = azurerm_resource_group.quest.name
+  tags                = var.tags
 
-resource "azurerm_cdn_frontdoor_origin_group" "quest" {
-  name                     = "quest-origin-group"
-  cdn_frontdoor_profile_id = azurerm_cdn_frontdoor_profile.quest.id
+  is_http_allowed  = true
+  is_https_allowed = true
 
-  load_balancing {}
+  origin_host_header = azurerm_public_ip.lb.ip_address
 
-  health_probe {
-    protocol            = "Http"
-    request_type        = "GET"
-    path                = "/"
-    interval_in_seconds = 30
+  origin {
+    name      = "quest-origin"
+    host_name = azurerm_public_ip.lb.ip_address
+    http_port = 80
   }
-}
 
-resource "azurerm_cdn_frontdoor_origin" "quest" {
-  name                          = "quest-origin"
-  cdn_frontdoor_origin_group_id = azurerm_cdn_frontdoor_origin_group.quest.id
+  # The app's responses are dynamic (e.g. per-request client IP, secret word), not
+  # cacheable static assets, so bypass the CDN's default caching behavior entirely.
+  global_delivery_rule {
+    cache_expiration_action {
+      behavior = "BypassCache"
+    }
 
-  enabled                        = true
-  host_name                      = azurerm_public_ip.lb.ip_address
-  http_port                      = 80
-  https_port                     = 443
-  origin_host_header             = azurerm_public_ip.lb.ip_address
-  priority                       = 1
-  weight                         = 1000
-  certificate_name_check_enabled = false
-}
-
-resource "azurerm_cdn_frontdoor_route" "quest" {
-  name                          = "quest-route"
-  cdn_frontdoor_endpoint_id     = azurerm_cdn_frontdoor_endpoint.quest.id
-  cdn_frontdoor_origin_group_id = azurerm_cdn_frontdoor_origin_group.quest.id
-  cdn_frontdoor_origin_ids      = [azurerm_cdn_frontdoor_origin.quest.id]
-
-  supported_protocols    = ["Http", "Https"]
-  patterns_to_match      = ["/*"]
-  forwarding_protocol    = "HttpOnly"
-  https_redirect_enabled = true
-  link_to_default_domain = true
+    # Unlike Front Door, classic Azure CDN doesn't document automatically setting
+    # X-Forwarded-Proto from the client's protocol, and the origin here is only ever
+    # reached over plain HTTP (no https_port on the origin above). The app's /tls check
+    # relies on this header, so set it explicitly rather than depend on undocumented
+    # default behavior -- this endpoint is only ever meant to be hit over HTTPS.
+    modify_request_header_action {
+      action = "Overwrite"
+      name   = "X-Forwarded-Proto"
+      value  = "https"
+    }
+  }
 }

@@ -1,4 +1,4 @@
 output "endpoint_url" {
-  description = "Public HTTPS endpoint for the Azure deployment (Front Door, managed cert on *.azurefd.net)"
-  value       = "https://${azurerm_cdn_frontdoor_endpoint.quest.host_name}"
+  description = "Public HTTPS endpoint for the Azure deployment (Azure CDN, managed cert on *.azureedge.net)"
+  value       = "https://${azurerm_cdn_endpoint.quest.fqdn}"
 }

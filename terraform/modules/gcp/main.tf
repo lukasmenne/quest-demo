@@ -1,6 +1,31 @@
+# New GCP projects don't come with these enabled, and the resources below need them.
+resource "google_project_service" "iam" {
+  service            = "iam.googleapis.com"
+  disable_on_destroy = false
+}
+
+resource "google_project_service" "secretmanager" {
+  service            = "secretmanager.googleapis.com"
+  disable_on_destroy = false
+}
+
+resource "google_project_service" "run" {
+  service            = "run.googleapis.com"
+  disable_on_destroy = false
+}
+
+# Newly-enabled APIs can take a few seconds to propagate; resources created against them
+# immediately in the same apply have been known to 403 otherwise.
+resource "time_sleep" "gcp_api_propagation" {
+  depends_on      = [google_project_service.iam, google_project_service.secretmanager, google_project_service.run]
+  create_duration = "30s"
+}
+
 resource "google_service_account" "quest_run" {
   account_id   = "quest-run"
   display_name = "Quest Cloud Run runtime"
+
+  depends_on = [time_sleep.gcp_api_propagation]
 }
 
 resource "google_secret_manager_secret" "secret_word" {
@@ -9,6 +34,8 @@ resource "google_secret_manager_secret" "secret_word" {
   replication {
     auto {}
   }
+
+  depends_on = [time_sleep.gcp_api_propagation]
 }
 
 resource "google_secret_manager_secret_version" "secret_word" {
@@ -50,7 +77,7 @@ resource "google_cloud_run_v2_service" "quest" {
     }
   }
 
-  depends_on = [google_secret_manager_secret_iam_member.quest_run]
+  depends_on = [google_secret_manager_secret_iam_member.quest_run, time_sleep.gcp_api_propagation]
 }
 
 resource "google_cloud_run_v2_service_iam_member" "invoker" {

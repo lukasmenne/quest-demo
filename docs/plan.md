@@ -159,7 +159,21 @@ applies on merge.
       `PERMISSION_DENIED: run.services.setIamPolicy` — the same pattern as constraint #10's
       Secret Manager error: Cloud Run also excludes its own IAM policy management from
       `roles/editor`. Added `roles/run.admin` alongside `roles/secretmanager.admin`.
-12. **After all of the above, the apply succeeded but two functional problems remained —
+12. **Once the apply succeeded, `/loadbalanced` still failed on GCP — confirmed via research,
+    not assumption, that Cloud Run's built-in ingress genuinely can't pass this check.** Google's
+    own docs list exactly three headers added to the forwarded request
+    (`X-Cloud-Trace-Context`, `X-Forwarded-For`, `X-Forwarded-Proto`) — no `Via`/`Server` header
+    naming Google, unlike the response headers a client sees (`server: Google Frontend`, which is
+    added on the way back out, not forwarded inward). No source (official or independent) confirms
+    otherwise for either gen1 or gen2 execution environments. **Decision: add a real external
+    HTTPS Load Balancer** (`google_compute_backend_service` with a `SERVERLESS`
+    `google_compute_region_network_endpoint_group` backend, structured after Google's own
+    `GoogleCloudPlatform/terraform-google-lb-http` reference module) in front of Cloud Run, using
+    the same free-wildcard-DNS (`sslip.io`) + managed-cert approach as Azure. Cloud Run's
+    `ingress` is tightened to `INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER` so the app is only
+    reachable through the load balancer. This needed the `compute.googleapis.com` API enabled
+    too (constraint #8's project-service pattern, extended to a fourth API).
+13. **After all of the above, the apply succeeded but two functional problems remained —
     Azure wasn't responding at all, and Azure's `/loadbalanced` still failed once it was.
     Both were diagnosed live** (`az vmss run-command invoke` to exec into the running
     instance/container directly, rather than guessing from the outside):
@@ -331,11 +345,18 @@ referenced by the task definition's `secrets[]`.
 > headers through untouched, so both CloudFront headers survive; (b) add an **nginx sidecar** to
 > the task that sets `proxy_set_header X-Forwarded-Proto https` before proxying to 3000.
 
-**GCP** — Cloud Run v2. Its built-in ingress is a Google-managed load balancer with a managed cert
-on `*.run.app` and sets both required headers. A Global External ALB is deliberately *not* used —
-it would require a domain for a managed cert. `SECRET_WORD` from Secret Manager via
-`env.value_source`. Cloud Logging is automatic. A fresh project doesn't come with the IAM, Secret
-Manager, or Cloud Run APIs enabled (constraint #8) — `google_project_service` enables all three,
+**GCP** — Cloud Run v2 behind a real external HTTPS Load Balancer (see constraint #13 for why
+Cloud Run's own built-in ingress wasn't enough). A `google_compute_region_network_endpoint_group`
+(`SERVERLESS`, pointed at the Cloud Run service) backs a `google_compute_backend_service`
+(`EXTERNAL_MANAGED`), fronted by a `google_compute_global_address` + managed SSL cert for a
+`<ip>.sslip.io` hostname — same free-wildcard-DNS trick as Azure, structured after Google's own
+`GoogleCloudPlatform/terraform-google-lb-http` reference module rather than guessing the resource
+shapes. A port-80 forwarding rule redirects to HTTPS, matching how Azure/AWS both ultimately serve
+HTTPS only. Cloud Run's `ingress` is restricted to `INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER` so the
+app is only reachable through the load balancer, not the default `*.run.app` URL — consistent with
+Azure (NSG) and AWS (ALB-only). `SECRET_WORD` from Secret Manager via `env.value_source`. Cloud
+Logging is automatic. A fresh project doesn't come with the IAM, Secret Manager, Cloud Run, or
+Compute Engine APIs enabled (constraints #8 and #13) — `google_project_service` enables all four,
 followed by a 30s `time_sleep` before anything that depends on them.
 
 ## Phase 4 — `env/dev` wiring

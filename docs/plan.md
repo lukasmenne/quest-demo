@@ -159,6 +159,35 @@ applies on merge.
       `PERMISSION_DENIED: run.services.setIamPolicy` — the same pattern as constraint #10's
       Secret Manager error: Cloud Run also excludes its own IAM policy management from
       `roles/editor`. Added `roles/run.admin` alongside `roles/secretmanager.admin`.
+12. **After all of the above, the apply succeeded but two functional problems remained —
+    Azure wasn't responding at all, and Azure's `/loadbalanced` still failed once it was.
+    Both were diagnosed live** (`az vmss run-command invoke` to exec into the running
+    instance/container directly, rather than guessing from the outside):
+    - Azure: nothing was listening on 80/443. `cloud-init status --long` showed `runcmd`
+      itself had failed: `apt-get install -y caddy` hit `Could not get lock
+      /var/lib/dpkg/lock-frontend` — Ubuntu's own `apt-daily`/`apt-daily-upgrade`
+      timers/services race the `runcmd` stage for the dpkg lock on first boot. Fixed by
+      stopping those timers/services and waiting for the lock to clear before touching
+      apt ourselves. A second issue surfaced once that was fixed: `write_files` had
+      already written `/etc/caddy/Caddyfile` before the package installed, so dpkg's
+      postinst saw a "modified" conffile and tried to interactively prompt with no TTY
+      (`end of file on stdin at conffile prompt`) — fixed with
+      `-o Dpkg::Options::=--force-confold` to keep our file non-interactively. Verified
+      the actual fix live via `az vmss run-command invoke` against the running instance
+      before writing it back into `cloud-init.yaml.tftpl`, since a `custom_data` change
+      alone doesn't retroactively re-run cloud-init on an already-provisioned VMSS
+      instance under `upgrade_mode = "Automatic"`.
+    - Azure: once Caddy was up, `/loadbalanced` *still* failed, but a direct
+      `docker exec`+`bin/004` call inside the container succeeded. Bisecting by hand
+      (invoking `bin/004` with progressively more realistic header sets) found the real
+      cause: **any** `via` request header — regardless of its value — makes `bin/004`
+      commit to checking for a GCP-style match (`via` containing `1.1 google`) and, if
+      that doesn't match, it never falls through to try the Azure IMDS check at all. The
+      three cloud checks aren't independent/parallel the way constraint #4 assumed; a
+      `via` header's mere presence is exclusive to the GCP path. Caddy adds its own
+      `Via: 1.1 Caddy` header to the proxied request by default, which was silently
+      tripping this. Fixed with `header_up -Via` in both Caddyfile `reverse_proxy` blocks
+      to strip it before the request reaches the app.
 
 ## Phase 1 — Dockerfile
 

@@ -9,14 +9,24 @@ packages:
   - apt-transport-https
 
 write_files:
+  # header_up -Via: bin/004's /loadbalanced check treats ANY "via" request header as a
+  # signal to check for a GCP-style match (via containing "1.1 google") and, if that
+  # specific match fails, never falls through to the Azure IMDS check at all -- it doesn't
+  # independently evaluate each cloud. Caddy adds its own "Via: 1.1 Caddy" header to the
+  # proxied request by default, which silently broke this endpoint until traced down to
+  # the exact header via live debugging (docker exec + directly invoking bin/004).
   - path: /etc/caddy/Caddyfile
     content: |
       :80 {
-        reverse_proxy 127.0.0.1:${app_port}
+        reverse_proxy 127.0.0.1:${app_port} {
+          header_up -Via
+        }
       }
 
       ${lb_hostname} {
-        reverse_proxy 127.0.0.1:${app_port}
+        reverse_proxy 127.0.0.1:${app_port} {
+          header_up -Via
+        }
       }
 
 runcmd:
@@ -24,6 +34,11 @@ runcmd:
   - docker run -d --name quest --restart unless-stopped --log-driver journald -p 127.0.0.1:${app_port}:${app_port} -e SECRET_WORD='${secret_word}' ${image}
   - curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
   - curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' -o /etc/apt/sources.list.d/caddy-stable.list
+  # Ubuntu's own apt-daily/unattended-upgrades timers race this runcmd stage for the dpkg
+  # lock on first boot -- stop them and wait the lock clear before touching apt ourselves,
+  # or "apt-get install caddy" silently fails with "Could not get lock /var/lib/dpkg/lock-frontend".
+  - systemctl stop apt-daily.timer apt-daily-upgrade.timer apt-daily.service apt-daily-upgrade.service
+  - while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || fuser /var/lib/dpkg/lock >/dev/null 2>&1; do sleep 2; done
   - apt-get update
   - apt-get install -y caddy
   - systemctl restart caddy

@@ -1,11 +1,11 @@
 resource "azurerm_resource_group" "quest" {
   name     = "quest"
-  location = "southcentralus"
+  location = "denmarkeast"
   tags     = var.tags
 }
 
 resource "azurerm_log_analytics_workspace" "quest" {
-  name                = "log-quest-scus"
+  name                = "log-quest-dnk"
   location            = azurerm_resource_group.quest.location
   resource_group_name = azurerm_resource_group.quest.name
   sku                 = "PerGB2018"
@@ -36,22 +36,33 @@ resource "azurerm_network_security_group" "quest" {
   resource_group_name = azurerm_resource_group.quest.name
   tags                = var.tags
 
-  # Standard LB is pass-through, so the VM sees Front Door's real source IP.
-  # Only Front Door's edge IP space may reach the app port.
+  # Caddy on the VM terminates TLS itself (see cloud-init.yaml.tftpl) and needs to be
+  # genuinely internet-reachable on 80 (ACME HTTP-01 challenge + redirect) and 443 (the
+  # actual TLS listener). The app container only binds to loopback, so it's never exposed
+  # directly regardless of this rule.
   security_rule {
-    name                       = "AllowFrontDoorInbound"
+    name                       = "AllowWebInbound"
     priority                   = 100
     direction                  = "Inbound"
     access                     = "Allow"
     protocol                   = "Tcp"
     source_port_range          = "*"
-    destination_port_range     = tostring(var.app_port)
-    source_address_prefix      = "AzureFrontDoor.Backend"
+    destination_port_ranges    = ["80", "443"]
+    source_address_prefix      = "Internet"
     destination_address_prefix = "*"
   }
 }
 
 # --- Load balancer ---
+#
+# TLS (managed cert + trusted CA) for Azure: both Front Door (blocked on Free
+# Trial/Student subscriptions) and classic Azure CDN (blocked platform-wide, no new
+# resources since Oct 2025) are dead ends here. Caddy runs directly on the VM instead
+# (see cloud-init.yaml.tftpl) and gets a genuine Let's Encrypt certificate for a free
+# wildcard-DNS hostname derived from the LB's public IP (<ip>.sslip.io resolves to that
+# IP with no registration or propagation delay). The Standard LB stays pure L4 and
+# forwards both 80 (ACME HTTP-01 challenge) and 443 (the real TLS listener) straight
+# through to Caddy on the VM.
 
 resource "azurerm_public_ip" "lb" {
   name                = "quest-lb-pip"
@@ -84,7 +95,7 @@ resource "azurerm_lb_probe" "quest" {
   name            = "http"
   loadbalancer_id = azurerm_lb.quest.id
   protocol        = "Http"
-  port            = var.app_port
+  port            = 80
   request_path    = "/"
 }
 
@@ -93,10 +104,36 @@ resource "azurerm_lb_rule" "quest" {
   loadbalancer_id                = azurerm_lb.quest.id
   protocol                       = "Tcp"
   frontend_port                  = 80
-  backend_port                   = var.app_port
+  backend_port                   = 80
   frontend_ip_configuration_name = "frontend"
   backend_address_pool_ids       = [azurerm_lb_backend_address_pool.quest.id]
   probe_id                       = azurerm_lb_probe.quest.id
+
+  # The outbound rule below reuses this same frontend IP for SNAT; Azure requires
+  # the load-balancing rule to explicitly cede outbound SNAT to it.
+  disable_outbound_snat = true
+}
+
+# TCP, not Https: during the brief window before Caddy has finished its first ACME
+# issuance, a TLS-handshake probe could flap the backend as unhealthy. A plain TCP
+# connect is enough to know Caddy itself is up.
+resource "azurerm_lb_probe" "https" {
+  name            = "https"
+  loadbalancer_id = azurerm_lb.quest.id
+  protocol        = "Tcp"
+  port            = 443
+}
+
+resource "azurerm_lb_rule" "https" {
+  name                           = "https"
+  loadbalancer_id                = azurerm_lb.quest.id
+  protocol                       = "Tcp"
+  frontend_port                  = 443
+  backend_port                   = 443
+  frontend_ip_configuration_name = "frontend"
+  backend_address_pool_ids       = [azurerm_lb_backend_address_pool.quest.id]
+  probe_id                       = azurerm_lb_probe.https.id
+  disable_outbound_snat          = true
 }
 
 # Gives the VMSS SNAT'd outbound internet access (apt/docker pull) without a NAT Gateway.
@@ -153,6 +190,7 @@ resource "azurerm_linux_virtual_machine_scale_set" "quest" {
     image       = var.image
     app_port    = var.app_port
     secret_word = var.secret_word
+    lb_hostname = "${azurerm_public_ip.lb.ip_address}.sslip.io"
   }))
 
   network_interface {
@@ -189,10 +227,6 @@ resource "azurerm_monitor_diagnostic_setting" "lb" {
 
   enabled_log {
     category = "LoadBalancerAlertEvent"
-  }
-
-  enabled_log {
-    category = "LoadBalancerProbeHealthStatus"
   }
 
   enabled_metric {
@@ -232,60 +266,4 @@ resource "azurerm_monitor_data_collection_rule_association" "quest" {
   name                    = "quest-dcr-association"
   target_resource_id      = azurerm_linux_virtual_machine_scale_set.quest.id
   data_collection_rule_id = azurerm_monitor_data_collection_rule.quest.id
-}
-
-# --- Front Door (TLS + managed cert on the default *.azurefd.net domain) ---
-
-resource "azurerm_cdn_frontdoor_profile" "quest" {
-  name                = "quest-fd"
-  resource_group_name = azurerm_resource_group.quest.name
-  sku_name            = "Standard_AzureFrontDoor"
-  tags                = var.tags
-}
-
-resource "azurerm_cdn_frontdoor_endpoint" "quest" {
-  name                     = "quest-app"
-  cdn_frontdoor_profile_id = azurerm_cdn_frontdoor_profile.quest.id
-  tags                     = var.tags
-}
-
-resource "azurerm_cdn_frontdoor_origin_group" "quest" {
-  name                     = "quest-origin-group"
-  cdn_frontdoor_profile_id = azurerm_cdn_frontdoor_profile.quest.id
-
-  load_balancing {}
-
-  health_probe {
-    protocol            = "Http"
-    request_type        = "GET"
-    path                = "/"
-    interval_in_seconds = 30
-  }
-}
-
-resource "azurerm_cdn_frontdoor_origin" "quest" {
-  name                          = "quest-origin"
-  cdn_frontdoor_origin_group_id = azurerm_cdn_frontdoor_origin_group.quest.id
-
-  enabled                        = true
-  host_name                      = azurerm_public_ip.lb.ip_address
-  http_port                      = 80
-  https_port                     = 443
-  origin_host_header             = azurerm_public_ip.lb.ip_address
-  priority                       = 1
-  weight                         = 1000
-  certificate_name_check_enabled = false
-}
-
-resource "azurerm_cdn_frontdoor_route" "quest" {
-  name                          = "quest-route"
-  cdn_frontdoor_endpoint_id     = azurerm_cdn_frontdoor_endpoint.quest.id
-  cdn_frontdoor_origin_group_id = azurerm_cdn_frontdoor_origin_group.quest.id
-  cdn_frontdoor_origin_ids      = [azurerm_cdn_frontdoor_origin.quest.id]
-
-  supported_protocols    = ["Http", "Https"]
-  patterns_to_match      = ["/*"]
-  forwarding_protocol    = "HttpOnly"
-  https_redirect_enabled = true
-  link_to_default_domain = true
 }

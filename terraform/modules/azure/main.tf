@@ -36,26 +36,33 @@ resource "azurerm_network_security_group" "quest" {
   resource_group_name = azurerm_resource_group.quest.name
   tags                = var.tags
 
-  # Standard LB is pass-through, so the VM sees the real source IP of whatever hits it.
-  # Ideally this would be locked to the CDN edge's IP space the way the previous Front
-  # Door design was (service tag AzureFrontDoor.Backend), but Azure CDN Standard from
-  # Microsoft (classic) doesn't have a documented/guaranteed service tag of its own, and
-  # guessing wrong here would silently break the deployment (health probes + all traffic
-  # dropped). Left open; origin lockdown is noted as a follow-up in docs/plan.md.
+  # Caddy on the VM terminates TLS itself (see cloud-init.yaml.tftpl) and needs to be
+  # genuinely internet-reachable on 80 (ACME HTTP-01 challenge + redirect) and 443 (the
+  # actual TLS listener). The app container only binds to loopback, so it's never exposed
+  # directly regardless of this rule.
   security_rule {
-    name                       = "AllowAppInbound"
+    name                       = "AllowWebInbound"
     priority                   = 100
     direction                  = "Inbound"
     access                     = "Allow"
     protocol                   = "Tcp"
     source_port_range          = "*"
-    destination_port_range     = tostring(var.app_port)
+    destination_port_ranges    = ["80", "443"]
     source_address_prefix      = "Internet"
     destination_address_prefix = "*"
   }
 }
 
 # --- Load balancer ---
+#
+# TLS (managed cert + trusted CA) for Azure: both Front Door (blocked on Free
+# Trial/Student subscriptions) and classic Azure CDN (blocked platform-wide, no new
+# resources since Oct 2025) are dead ends here. Caddy runs directly on the VM instead
+# (see cloud-init.yaml.tftpl) and gets a genuine Let's Encrypt certificate for a free
+# wildcard-DNS hostname derived from the LB's public IP (<ip>.sslip.io resolves to that
+# IP with no registration or propagation delay). The Standard LB stays pure L4 and
+# forwards both 80 (ACME HTTP-01 challenge) and 443 (the real TLS listener) straight
+# through to Caddy on the VM.
 
 resource "azurerm_public_ip" "lb" {
   name                = "quest-lb-pip"
@@ -88,7 +95,7 @@ resource "azurerm_lb_probe" "quest" {
   name            = "http"
   loadbalancer_id = azurerm_lb.quest.id
   protocol        = "Http"
-  port            = var.app_port
+  port            = 80
   request_path    = "/"
 }
 
@@ -97,7 +104,7 @@ resource "azurerm_lb_rule" "quest" {
   loadbalancer_id                = azurerm_lb.quest.id
   protocol                       = "Tcp"
   frontend_port                  = 80
-  backend_port                   = var.app_port
+  backend_port                   = 80
   frontend_ip_configuration_name = "frontend"
   backend_address_pool_ids       = [azurerm_lb_backend_address_pool.quest.id]
   probe_id                       = azurerm_lb_probe.quest.id
@@ -105,6 +112,28 @@ resource "azurerm_lb_rule" "quest" {
   # The outbound rule below reuses this same frontend IP for SNAT; Azure requires
   # the load-balancing rule to explicitly cede outbound SNAT to it.
   disable_outbound_snat = true
+}
+
+# TCP, not Https: during the brief window before Caddy has finished its first ACME
+# issuance, a TLS-handshake probe could flap the backend as unhealthy. A plain TCP
+# connect is enough to know Caddy itself is up.
+resource "azurerm_lb_probe" "https" {
+  name            = "https"
+  loadbalancer_id = azurerm_lb.quest.id
+  protocol        = "Tcp"
+  port            = 443
+}
+
+resource "azurerm_lb_rule" "https" {
+  name                           = "https"
+  loadbalancer_id                = azurerm_lb.quest.id
+  protocol                       = "Tcp"
+  frontend_port                  = 443
+  backend_port                   = 443
+  frontend_ip_configuration_name = "frontend"
+  backend_address_pool_ids       = [azurerm_lb_backend_address_pool.quest.id]
+  probe_id                       = azurerm_lb_probe.https.id
+  disable_outbound_snat          = true
 }
 
 # Gives the VMSS SNAT'd outbound internet access (apt/docker pull) without a NAT Gateway.
@@ -161,6 +190,7 @@ resource "azurerm_linux_virtual_machine_scale_set" "quest" {
     image       = var.image
     app_port    = var.app_port
     secret_word = var.secret_word
+    lb_hostname = "${azurerm_public_ip.lb.ip_address}.sslip.io"
   }))
 
   network_interface {
@@ -236,58 +266,4 @@ resource "azurerm_monitor_data_collection_rule_association" "quest" {
   name                    = "quest-dcr-association"
   target_resource_id      = azurerm_linux_virtual_machine_scale_set.quest.id
   data_collection_rule_id = azurerm_monitor_data_collection_rule.quest.id
-}
-
-# --- CDN (TLS + managed cert on the default *.azureedge.net domain) ---
-#
-# Front Door Standard/Premium is rejected outright on Free Trial/Student subscriptions
-# ("Free Trial and Student account is forbidden for Azure Frontdoor resources"). Azure CDN
-# Standard from Microsoft (the classic, non-Front-Door SKU) is the only CDN tier Microsoft
-# documents as available to those subscription types, so it's used here instead. Its default
-# endpoint hostname gets a Microsoft-managed HTTPS certificate with no extra configuration.
-
-resource "azurerm_cdn_profile" "quest" {
-  name                = "quest-cdn"
-  location            = "global"
-  resource_group_name = azurerm_resource_group.quest.name
-  sku                 = "Standard_Microsoft"
-  tags                = var.tags
-}
-
-resource "azurerm_cdn_endpoint" "quest" {
-  name                = "quest-app"
-  profile_name        = azurerm_cdn_profile.quest.name
-  location            = "global"
-  resource_group_name = azurerm_resource_group.quest.name
-  tags                = var.tags
-
-  is_http_allowed  = true
-  is_https_allowed = true
-
-  origin_host_header = azurerm_public_ip.lb.ip_address
-
-  origin {
-    name      = "quest-origin"
-    host_name = azurerm_public_ip.lb.ip_address
-    http_port = 80
-  }
-
-  # The app's responses are dynamic (e.g. per-request client IP, secret word), not
-  # cacheable static assets, so bypass the CDN's default caching behavior entirely.
-  global_delivery_rule {
-    cache_expiration_action {
-      behavior = "BypassCache"
-    }
-
-    # Unlike Front Door, classic Azure CDN doesn't document automatically setting
-    # X-Forwarded-Proto from the client's protocol, and the origin here is only ever
-    # reached over plain HTTP (no https_port on the origin above). The app's /tls check
-    # relies on this header, so set it explicitly rather than depend on undocumented
-    # default behavior -- this endpoint is only ever meant to be hit over HTTPS.
-    modify_request_header_action {
-      action = "Overwrite"
-      name   = "X-Forwarded-Proto"
-      value  = "https"
-    }
-  }
 }

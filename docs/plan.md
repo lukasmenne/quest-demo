@@ -18,9 +18,9 @@ The load balancer and TLS requirements are therefore not cosmetic — they are v
 look healthy while still failing them.
 
 Goal: a Dockerfile, a GHCR build/scan pipeline, three cloud deployments (Azure VMSS behind a
-Standard Load Balancer + CDN, AWS ECS Fargate, GCP Cloud Run) each fronted by a load
-balancer with real TLS and logging, and a Terraform CI/CD pipeline that plans on PR and applies
-on merge.
+Standard Load Balancer with Caddy terminating TLS, AWS ECS Fargate, GCP Cloud Run) each fronted
+by a load balancer with real TLS and logging, and a Terraform CI/CD pipeline that plans on PR and
+applies on merge.
 
 ## Decisions already made
 
@@ -63,29 +63,31 @@ on merge.
    Container Apps ingress headers (`X-Forwarded-For`/`-Proto`) satisfy `/tls` but **can never**
    satisfy `/loadbalanced`, regardless of ingress configuration.
 
-   **Decision: switch Azure compute from Container Apps to VMSS + Standard Load Balancer +
-   a CDN**, accepting the added complexity, because it's the only way to genuinely
-   satisfy `/loadbalanced` on Azure:
+   **Decision: switch Azure compute from Container Apps to VMSS + Standard Load Balancer**,
+   accepting the added complexity, because it's the only way to genuinely satisfy
+   `/loadbalanced` on Azure:
    - The VMSS instances are real backend-pool members of a Standard LB, so IMDS reports
      `{"loadbalancer": ...}` truthfully — no spoofing.
-   - Standard LB is Layer 4 only (no TLS, no managed cert), so a CDN sits in front for the
-     trusted cert on a default endpoint domain — still no custom domain needed. **Revised after
-     the first live apply**: Azure Front Door (Standard SKU) was the original choice here, but it
-     is rejected outright on Free Trial/Student subscriptions (`BadRequest: Free Trial and Student
-     account is forbidden for Azure Frontdoor resources`). Microsoft's own guidance is that
-     **Azure CDN Standard from Microsoft (classic)** is the only CDN tier available to those
-     subscription types, so that's what's used instead — managed cert on the default
-     `*.azureedge.net` domain.
-   - Classic CDN isn't documented as auto-injecting `X-Forwarded-Proto` from the client's
-     protocol the way Front Door is, so a `global_delivery_rule` explicitly overwrites it to
-     `https` rather than relying on unconfirmed default behavior (the origin is only ever reached
-     over plain HTTP, so there's nothing to preserve from a real origin-leg protocol anyway).
-   - Classic CDN also doesn't have a documented origin-facing service tag the way Front Door has
-     `AzureFrontDoor.Backend`, so locking the VMSS NSG down to CDN's edge IPs isn't safely
-     possible without risking silently breaking all traffic. The app port is left open to
-     `Internet` instead — noted as a follow-up (origin lockdown) rather than solved here.
-   - The CDN's default caching behavior would otherwise cache this app's dynamic responses; a
-     `global_delivery_rule` sets `cache_expiration_action { behavior = "BypassCache" }`.
+   - Standard LB is Layer 4 only (no TLS, no managed cert), so something else has to terminate
+     TLS in front of it with a trusted-CA cert and no custom domain. **This took two revisions,
+     both only discoverable by actually applying:**
+     1. Azure Front Door (Standard SKU) was the original choice. Rejected outright on Free
+        Trial/Student subscriptions (`BadRequest: Free Trial and Student account is forbidden
+        for Azure Frontdoor resources`).
+     2. Classic Azure CDN (`Standard_Microsoft` SKU) looked like the documented fallback for
+        trial subscriptions — until applying it hit `Error: creation of new CDN resources is no
+        longer permitted following its deprecation on October 1, 2025`. This is a platform-wide
+        retirement, not a subscription restriction, so no account type can create one anymore.
+     3. **Final decision**: Caddy runs directly on the VM (via cloud-init) and gets a genuine
+        Let's Encrypt certificate for a free wildcard-DNS hostname derived from the LB's public
+        IP (`<ip>.sslip.io`, which resolves to that IP with no registration and no propagation
+        delay — so there's still no domain to buy or manage). The Standard LB forwards both 80
+        (ACME HTTP-01 challenge + redirect) and 443 (the real TLS listener) straight through to
+        Caddy; Caddy reverse-proxies to the app container, which is bound to loopback only so it
+        can't be reached by skipping Caddy.
+   - The VMSS NSG allows inbound on 80 and 443 from `Internet` — Caddy itself is the thing being
+     exposed here (there's no separate edge service to lock traffic down to), so this is
+     necessarily public, not a shortcut.
 5. **The GHCR package must be public.** Cloud Run can only pull private images from Artifact
    Registry / GCR; it cannot hold GHCR pull credentials. Public GHCR also removes the need for
    registry auth in Azure and ECS. (Fallback if it must stay private: mirror the image into
@@ -102,8 +104,8 @@ on merge.
      combination checked (`Standard_B1s`/`Standard_D2s_v3`/etc. all `NotAvailableForSubscription`
      in `southcentralus`, `eastus`, `westus2`...). Quota is open in a handful of newer regions
      instead (confirmed via `az vm list-skus --all`) — moved to `denmarkeast`.
-   - Azure Front Door forbidden on the trial subscription (see constraint #4) — switched to
-     classic Azure CDN.
+   - Azure Front Door forbidden on the trial subscription (see constraint #4) — first switched
+     to classic Azure CDN as a fix for this round.
    - Azure: `LoadBalancerProbeHealthStatus` is not a valid diagnostic-setting log category for
      this LB/subscription — dropped from `azurerm_monitor_diagnostic_setting`, kept
      `LoadBalancerAlertEvent` + `AllMetrics`.
@@ -111,6 +113,14 @@ on merge.
      `run.googleapis.com` enabled by default. Added `google_project_service` resources for all
      three, plus a `time_sleep` (30s) before anything that depends on them — newly-enabled GCP
      APIs are known to 403 for a few seconds after the enable call returns.
+9. **The classic-CDN fix from constraint #8 turned out to be a dead end too, and the CI plan step
+   was silently hiding the error that proved it.** `terraform plan -no-color ... | tee plan.txt`
+   has no `pipefail`, so the step's exit code was `tee`'s (always 0), not Terraform's — the PR
+   check reported a clean "24 to add, 0 to change, 10 to destroy" plan while the actual `terraform
+   plan` process had exited 1 on `Error: creation of new CDN resources is no longer permitted
+   following its deprecation on October 1, 2025`, buried in the collapsed plan output. Fixed the
+   workflow with `set -o pipefail` so a real plan error fails the check going forward, and
+   replaced classic CDN with the Caddy + sslip.io design in constraint #4.
 
 ## Phase 1 — Dockerfile
 
@@ -189,28 +199,33 @@ Azure section below.
 Shared input variables per module: `image`, `secret_word` (sensitive), `app_port = 3000`, `tags`.
 Each module outputs `endpoint_url`.
 
-**Azure** — VMSS + Standard Load Balancer + a CDN (see constraint #4 above for why Container
-Apps was dropped, and constraint #8 for why Front Door specifically didn't work out). Compute is
-a `azurerm_linux_virtual_machine_scale_set` (Ubuntu 22.04, 1 instance, `Standard_B1s`, region
-`denmarkeast` — see constraint #8) whose NIC is a genuine backend-pool member of a
-`azurerm_lb` (Standard SKU) — this is what makes the Azure IMDS `/metadata/loadbalancer` check
-truthfully return `{"loadbalancer": ...}`. Cloud-init installs Docker and runs the image with
-`--log-driver=journald` (so container stdout lands in the systemd journal, not the default
-`json-file` driver which the logging pipeline can't see) and `-e SECRET_WORD=...`. A throwaway
-`tls_private_key` supplies the required SSH key for the VMSS (no real SSH access is intended —
-cloud-init does all the provisioning). An `azurerm_lb_outbound_rule` gives the VMSS SNAT'd
-outbound internet access (no NAT Gateway) so `apt`/`docker pull` work; the `azurerm_lb_rule` sets
-`disable_outbound_snat = true` since both rules share the one frontend IP (constraint #8).
+**Azure** — VMSS + Standard Load Balancer, with Caddy on the VM terminating TLS (see constraint
+#4 above for why Container Apps was dropped, and constraints #8-9 for why Front Door and then
+classic CDN each didn't work out). Compute is a `azurerm_linux_virtual_machine_scale_set` (Ubuntu
+22.04, 1 instance, `Standard_B1s`, region `denmarkeast` — see constraint #8) whose NIC is a
+genuine backend-pool member of a `azurerm_lb` (Standard SKU) — this is what makes the Azure IMDS
+`/metadata/loadbalancer` check truthfully return `{"loadbalancer": ...}`. Cloud-init installs
+Docker and runs the image bound to loopback only (`-p 127.0.0.1:3000:3000`, so it's unreachable
+except through Caddy) with `--log-driver=journald` (so container stdout lands in the systemd
+journal, not the default `json-file` driver which the logging pipeline can't see) and
+`-e SECRET_WORD=...`. A throwaway `tls_private_key` supplies the required SSH key for the VMSS
+(no real SSH access is intended — cloud-init does all the provisioning). An
+`azurerm_lb_outbound_rule` gives the VMSS SNAT'd outbound internet access (no NAT Gateway) so
+`apt`/`docker pull`/the Caddy install work; both `azurerm_lb_rule`s set
+`disable_outbound_snat = true` since they share the one frontend IP (constraint #8).
 
-The LB is Layer 4 only — no TLS — so `azurerm_cdn_profile`/`azurerm_cdn_endpoint` (classic Azure
-CDN, `Standard_Microsoft` SKU) sits in front, terminating TLS with the managed cert on the
-default `*.azureedge.net` endpoint domain (no custom domain needed) and forwarding plain HTTP to
-the LB's public IP as the origin. A `global_delivery_rule` explicitly sets
-`X-Forwarded-Proto: https` (not documented as automatic on this CDN tier, unlike Front Door) and
-bypasses the CDN's default caching (the app's responses are dynamic, not static assets). The VMSS
-NSG allows inbound on the app port from `Internet` — classic CDN doesn't have a documented
-origin-facing service tag the way Front Door does, so origin lockdown is a noted follow-up rather
-than solved here.
+The LB is Layer 4 only — no TLS — so cloud-init also installs Caddy from its official apt repo
+and writes a two-site `Caddyfile`: a plain `:80` block (serves the app directly and gives Caddy's
+automatic-HTTPS machinery a listener for the ACME HTTP-01 challenge) and a block for
+`<lb-public-ip>.sslip.io` (sslip.io is a free wildcard DNS service — that hostname resolves to
+the embedded IP with zero registration or propagation delay, so there's still no domain to buy).
+Caddy provisions and renews a genuine Let's Encrypt certificate for that hostname automatically,
+and its `reverse_proxy` directive sets `X-Forwarded-Proto`/`-For` from the real request by
+default — no manual header wiring needed the way CDN/Front Door required. The LB has a second
+rule/probe pair for port 443 alongside the existing port-80 one (both forwarding straight to
+Caddy on the VM; the 443 probe is TCP rather than HTTPS so a brief pre-certificate window can't
+flap the backend health). The VMSS NSG allows inbound on 80 and 443 from `Internet` — Caddy
+itself is the thing meant to be public here, there's no separate edge service to lock down to.
 
 `SECRET_WORD` is baked into cloud-init (same cleartext-in-state exposure the Container App
 `secret{}` block would have had — no change in risk posture). Logging: `AzureMonitorLinuxAgent`

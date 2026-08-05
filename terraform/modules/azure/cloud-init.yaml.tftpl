@@ -2,7 +2,28 @@
 package_update: true
 packages:
   - docker.io
+  - curl
+  - gnupg
+  - debian-keyring
+  - debian-archive-keyring
+  - apt-transport-https
+
+write_files:
+  - path: /etc/caddy/Caddyfile
+    content: |
+      :80 {
+        reverse_proxy 127.0.0.1:${app_port}
+      }
+
+      ${lb_hostname} {
+        reverse_proxy 127.0.0.1:${app_port}
+      }
 
 runcmd:
   - systemctl enable --now docker
-  - docker run -d --name quest --restart unless-stopped --log-driver journald -p ${app_port}:${app_port} -e SECRET_WORD='${secret_word}' ${image}
+  - docker run -d --name quest --restart unless-stopped --log-driver journald -p 127.0.0.1:${app_port}:${app_port} -e SECRET_WORD='${secret_word}' ${image}
+  - curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+  - curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' -o /etc/apt/sources.list.d/caddy-stable.list
+  - apt-get update
+  - apt-get install -y caddy
+  - systemctl restart caddy

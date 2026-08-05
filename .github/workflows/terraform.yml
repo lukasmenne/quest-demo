@@ -90,7 +90,11 @@ jobs:
 
       - name: terraform plan
         id: plan
-        run: terraform plan -no-color -input=false -out=tfplan.binary | tee plan.txt
+        # Without pipefail, this step's exit code is tee's (always 0), not terraform's --
+        # a real plan error would print in plan.txt but still be reported as a passing check.
+        run: |
+          set -o pipefail
+          terraform plan -no-color -input=false -out=tfplan.binary | tee plan.txt
         continue-on-error: true
 
       - name: Build PR comment

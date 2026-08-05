@@ -1,4 +1,4 @@
-<svg viewBox="0 0 940 660" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif">
+<svg viewBox="0 0 940 760" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif">
   <style>
     .bg { fill: #ffffff; }
     .box { fill: #f6f8fa; stroke: #57606a; stroke-width: 1.2; }
@@ -38,161 +38,169 @@
     </marker>
   </defs>
 
-  <rect class="bg" x="0" y="0" width="940" height="660"/>
+  <rect class="bg" x="0" y="0" width="940" height="760"/>
 
-  <!-- CI/CD row -->
-  <text x="20" y="24" class="title">GitHub Actions</text>
-  <rect class="box ci" x="20" y="36" width="430" height="46" rx="6"/>
-  <text x="235" y="55" text-anchor="middle" class="label">image.yml</text>
-  <text x="235" y="72" text-anchor="middle" class="small">build + Trivy scan (PR) → push to GHCR (main)</text>
+  <!-- 1. Repo -->
+  <rect class="box" x="20" y="16" width="900" height="50" rx="6"/>
+  <text x="470" y="37" text-anchor="middle" class="label">quest-demo — GitHub repository</text>
+  <text x="470" y="54" text-anchor="middle" class="small">pull_request → plan · push to main → apply</text>
+  <line class="arrow" x1="235" y1="66" x2="235" y2="92"/>
+  <line class="arrow" x1="695" y1="66" x2="695" y2="92"/>
 
-  <rect class="box ci" x="470" y="36" width="450" height="46" rx="6"/>
-  <text x="695" y="55" text-anchor="middle" class="label">terraform.yml</text>
-  <text x="695" y="72" text-anchor="middle" class="small">plan + comment (PR) → apply (push to main)</text>
+  <!-- 2. Workflows -->
+  <rect class="box ci" x="20" y="92" width="430" height="46" rx="6"/>
+  <text x="235" y="111" text-anchor="middle" class="label">image.yml</text>
+  <text x="235" y="128" text-anchor="middle" class="small">build + Trivy scan (PR) → push to GHCR (main)</text>
 
-  <!-- GHCR, fed by image.yml -->
-  <rect class="box" x="380" y="96" width="180" height="34" rx="6"/>
-  <text x="470" y="118" text-anchor="middle" class="label">ghcr.io/quest-demo (public)</text>
-  <line class="arrow" x1="235" y1="82" x2="235" y2="113"/>
-  <line class="arrow" x1="235" y1="113" x2="380" y2="113"/>
-  <line class="arrow" x1="470" y1="130" x2="150" y2="200"/>
-  <line class="arrow" x1="470" y1="130" x2="470" y2="200"/>
-  <line class="arrow" x1="470" y1="130" x2="790" y2="200"/>
+  <rect class="box ci" x="470" y="92" width="450" height="46" rx="6"/>
+  <text x="695" y="111" text-anchor="middle" class="label">terraform.yml</text>
+  <text x="695" y="128" text-anchor="middle" class="small">plan + comment (PR) → apply (push to main)</text>
 
-  <!-- OIDC trust row, fed by terraform.yml -->
-  <line class="arrow-dashed" x1="695" y1="82" x2="150" y2="136"/>
-  <line class="arrow-dashed" x1="695" y1="82" x2="470" y2="136"/>
-  <line class="arrow-dashed" x1="695" y1="82" x2="790" y2="136"/>
+  <!-- 3. The rest: GHCR (fed by image.yml only, boxed off from the OIDC row below it) -->
+  <rect class="box" x="380" y="152" width="180" height="34" rx="6"/>
+  <text x="470" y="170" text-anchor="middle" class="label">ghcr.io/quest-demo (public)</text>
+  <text x="470" y="196" text-anchor="middle" class="small">pulled by every cloud's compute layer below</text>
+  <line class="arrow" x1="235" y1="138" x2="235" y2="169"/>
+  <line class="arrow" x1="235" y1="169" x2="380" y2="169"/>
 
-  <rect class="box oidc" x="20" y="136" width="260" height="40" rx="6"/>
-  <text x="150" y="154" text-anchor="middle" class="label">Azure AD federated credential</text>
-  <text x="150" y="169" text-anchor="middle" class="small">sub: repo:org@id/repo@id:...</text>
+  <!-- OIDC trust row, fed by terraform.yml via an elbow that stays clear of the GHCR box -->
+  <line class="arrow-dashed" x1="695" y1="138" x2="695" y2="204"/>
+  <line class="arrow-dashed" x1="695" y1="204" x2="150" y2="204"/>
+  <line class="arrow-dashed" x1="695" y1="204" x2="470" y2="204"/>
+  <line class="arrow-dashed" x1="695" y1="204" x2="790" y2="204"/>
+  <line class="arrow-dashed" x1="150" y1="204" x2="150" y2="216"/>
+  <line class="arrow-dashed" x1="470" y1="204" x2="470" y2="216"/>
+  <line class="arrow-dashed" x1="790" y1="204" x2="790" y2="216"/>
 
-  <rect class="box oidc" x="340" y="136" width="260" height="40" rx="6"/>
-  <text x="470" y="154" text-anchor="middle" class="label">AWS IAM role via OIDC provider</text>
-  <text x="470" y="169" text-anchor="middle" class="small">trust policy on the sub claim</text>
+  <rect class="box oidc" x="20" y="216" width="260" height="40" rx="6"/>
+  <text x="150" y="234" text-anchor="middle" class="label">Azure AD federated credential</text>
+  <text x="150" y="249" text-anchor="middle" class="small">sub: repo:org@id/repo@id:...</text>
 
-  <rect class="box oidc" x="660" y="136" width="260" height="40" rx="6"/>
-  <text x="790" y="154" text-anchor="middle" class="label">GCP Workload Identity Federation</text>
-  <text x="790" y="169" text-anchor="middle" class="small">condition on the repository claim</text>
+  <rect class="box oidc" x="340" y="216" width="260" height="40" rx="6"/>
+  <text x="470" y="234" text-anchor="middle" class="label">AWS IAM role via OIDC provider</text>
+  <text x="470" y="249" text-anchor="middle" class="small">trust policy on the sub claim</text>
 
-  <line class="arrow-dashed" x1="150" y1="176" x2="150" y2="204"/>
-  <line class="arrow-dashed" x1="470" y1="176" x2="470" y2="204"/>
-  <line class="arrow-dashed" x1="790" y1="176" x2="790" y2="204"/>
+  <rect class="box oidc" x="660" y="216" width="260" height="40" rx="6"/>
+  <text x="790" y="234" text-anchor="middle" class="label">GCP Workload Identity Federation</text>
+  <text x="790" y="249" text-anchor="middle" class="small">condition on the repository claim</text>
+
+  <line class="arrow-dashed" x1="150" y1="256" x2="150" y2="284"/>
+  <line class="arrow-dashed" x1="470" y1="256" x2="470" y2="284"/>
+  <line class="arrow-dashed" x1="790" y1="256" x2="790" y2="284"/>
 
   <!-- column headers -->
-  <text x="150" y="210" text-anchor="middle" class="cloud-title">Azure</text>
-  <text x="470" y="210" text-anchor="middle" class="cloud-title">AWS</text>
-  <text x="790" y="210" text-anchor="middle" class="cloud-title">GCP</text>
+  <text x="150" y="290" text-anchor="middle" class="cloud-title">Azure</text>
+  <text x="470" y="290" text-anchor="middle" class="cloud-title">AWS</text>
+  <text x="790" y="290" text-anchor="middle" class="cloud-title">GCP</text>
 
   <!-- Azure column (x=20..280) -->
-  <rect class="box" x="20" y="224" width="260" height="30" rx="6"/>
-  <text x="150" y="244" text-anchor="middle" class="label">Internet</text>
-  <line class="arrow" x1="150" y1="254" x2="150" y2="270"/>
+  <rect class="box" x="20" y="304" width="260" height="30" rx="6"/>
+  <text x="150" y="324" text-anchor="middle" class="label">Internet</text>
+  <line class="arrow" x1="150" y1="334" x2="150" y2="350"/>
 
-  <rect class="box edge-azure" x="20" y="270" width="260" height="38" rx="6"/>
-  <text x="150" y="290" text-anchor="middle" class="label">Standard Load Balancer</text>
-  <text x="150" y="303" text-anchor="middle" class="small">:80 ACME challenge · :443 TLS</text>
-  <line class="arrow" x1="150" y1="308" x2="150" y2="324"/>
+  <rect class="box edge-azure" x="20" y="350" width="260" height="38" rx="6"/>
+  <text x="150" y="370" text-anchor="middle" class="label">Standard Load Balancer</text>
+  <text x="150" y="383" text-anchor="middle" class="small">:80 ACME challenge · :443 TLS</text>
+  <line class="arrow" x1="150" y1="388" x2="150" y2="404"/>
 
-  <rect class="box" x="20" y="324" width="260" height="30" rx="6"/>
-  <text x="150" y="344" text-anchor="middle" class="label">VMSS instance (1x)</text>
-  <line class="arrow" x1="150" y1="354" x2="150" y2="370"/>
+  <rect class="box" x="20" y="404" width="260" height="30" rx="6"/>
+  <text x="150" y="424" text-anchor="middle" class="label">VMSS instance (1x)</text>
+  <line class="arrow" x1="150" y1="434" x2="150" y2="450"/>
 
-  <rect class="box edge-azure" x="20" y="370" width="260" height="38" rx="6"/>
-  <text x="150" y="390" text-anchor="middle" class="label">Caddy — Let's Encrypt TLS</text>
-  <text x="150" y="403" text-anchor="middle" class="small">reverse_proxy → app container :3000</text>
-  <line class="arrow" x1="150" y1="408" x2="150" y2="424"/>
+  <rect class="box edge-azure" x="20" y="450" width="260" height="38" rx="6"/>
+  <text x="150" y="470" text-anchor="middle" class="label">Caddy — Let's Encrypt TLS</text>
+  <text x="150" y="483" text-anchor="middle" class="small">reverse_proxy → app container :3000</text>
+  <line class="arrow" x1="150" y1="488" x2="150" y2="504"/>
 
-  <rect class="box" x="20" y="424" width="260" height="30" rx="6"/>
-  <text x="150" y="444" text-anchor="middle" class="label">Log Analytics (via DCR)</text>
+  <rect class="box" x="20" y="504" width="260" height="30" rx="6"/>
+  <text x="150" y="524" text-anchor="middle" class="label">Log Analytics (via DCR)</text>
 
-  <rect class="box secret" x="20" y="466" width="260" height="30" rx="6"/>
-  <text x="150" y="486" text-anchor="middle" class="label">SECRET_WORD baked into cloud-init</text>
-  <line class="arrow" x1="150" y1="466" x2="150" y2="408"/>
+  <rect class="box secret" x="20" y="546" width="260" height="30" rx="6"/>
+  <text x="150" y="566" text-anchor="middle" class="label">SECRET_WORD baked into cloud-init</text>
+  <line class="arrow" x1="150" y1="546" x2="150" y2="488"/>
 
   <!-- AWS column (x=340..600) -->
-  <rect class="box" x="340" y="224" width="260" height="30" rx="6"/>
-  <text x="470" y="244" text-anchor="middle" class="label">Internet</text>
-  <line class="arrow" x1="470" y1="254" x2="470" y2="270"/>
+  <rect class="box" x="340" y="304" width="260" height="30" rx="6"/>
+  <text x="470" y="324" text-anchor="middle" class="label">Internet</text>
+  <line class="arrow" x1="470" y1="334" x2="470" y2="350"/>
 
-  <rect class="box edge-aws" x="340" y="270" width="260" height="38" rx="6"/>
-  <text x="470" y="290" text-anchor="middle" class="label">CloudFront</text>
-  <text x="470" y="303" text-anchor="middle" class="small">managed TLS · *.cloudfront.net</text>
-  <line class="arrow" x1="470" y1="308" x2="470" y2="324"/>
+  <rect class="box edge-aws" x="340" y="350" width="260" height="38" rx="6"/>
+  <text x="470" y="370" text-anchor="middle" class="label">CloudFront</text>
+  <text x="470" y="383" text-anchor="middle" class="small">managed TLS · *.cloudfront.net</text>
+  <line class="arrow" x1="470" y1="388" x2="470" y2="404"/>
 
-  <rect class="box" x="340" y="324" width="260" height="30" rx="6"/>
-  <text x="470" y="344" text-anchor="middle" class="label">ALB :80</text>
-  <line class="arrow" x1="470" y1="354" x2="470" y2="370"/>
+  <rect class="box" x="340" y="404" width="260" height="30" rx="6"/>
+  <text x="470" y="424" text-anchor="middle" class="label">ALB :80</text>
+  <line class="arrow" x1="470" y1="434" x2="470" y2="450"/>
 
-  <rect class="box" x="340" y="370" width="260" height="38" rx="6"/>
-  <text x="470" y="390" text-anchor="middle" class="label">ECS Fargate</text>
-  <text x="470" y="403" text-anchor="middle" class="small">app container :3000</text>
-  <line class="arrow" x1="470" y1="408" x2="470" y2="424"/>
+  <rect class="box" x="340" y="450" width="260" height="38" rx="6"/>
+  <text x="470" y="470" text-anchor="middle" class="label">ECS Fargate</text>
+  <text x="470" y="483" text-anchor="middle" class="small">app container :3000</text>
+  <line class="arrow" x1="470" y1="488" x2="470" y2="504"/>
 
-  <rect class="box" x="340" y="424" width="260" height="30" rx="6"/>
-  <text x="470" y="444" text-anchor="middle" class="label">CloudWatch Logs</text>
+  <rect class="box" x="340" y="504" width="260" height="30" rx="6"/>
+  <text x="470" y="524" text-anchor="middle" class="label">CloudWatch Logs</text>
 
-  <rect class="box secret" x="340" y="466" width="260" height="30" rx="6"/>
-  <text x="470" y="486" text-anchor="middle" class="label">Secrets Manager → task secrets[]</text>
-  <line class="arrow" x1="470" y1="466" x2="470" y2="408"/>
+  <rect class="box secret" x="340" y="546" width="260" height="30" rx="6"/>
+  <text x="470" y="566" text-anchor="middle" class="label">Secrets Manager → task secrets[]</text>
+  <line class="arrow" x1="470" y1="546" x2="470" y2="488"/>
 
   <!-- GCP column (x=660..920) -->
-  <rect class="box" x="660" y="224" width="260" height="30" rx="6"/>
-  <text x="790" y="244" text-anchor="middle" class="label">Internet</text>
-  <line class="arrow" x1="790" y1="254" x2="790" y2="270"/>
+  <rect class="box" x="660" y="304" width="260" height="30" rx="6"/>
+  <text x="790" y="324" text-anchor="middle" class="label">Internet</text>
+  <line class="arrow" x1="790" y1="334" x2="790" y2="350"/>
 
-  <rect class="box edge-gcp" x="660" y="270" width="260" height="38" rx="6"/>
-  <text x="790" y="290" text-anchor="middle" class="label">External HTTPS Load Balancer</text>
-  <text x="790" y="303" text-anchor="middle" class="small">Google-managed TLS · sslip.io host</text>
-  <line class="arrow" x1="790" y1="308" x2="790" y2="324"/>
+  <rect class="box edge-gcp" x="660" y="350" width="260" height="38" rx="6"/>
+  <text x="790" y="370" text-anchor="middle" class="label">External HTTPS Load Balancer</text>
+  <text x="790" y="383" text-anchor="middle" class="small">Google-managed TLS · sslip.io host</text>
+  <line class="arrow" x1="790" y1="388" x2="790" y2="404"/>
 
-  <rect class="box" x="660" y="324" width="260" height="30" rx="6"/>
-  <text x="790" y="344" text-anchor="middle" class="label">Serverless NEG</text>
-  <line class="arrow" x1="790" y1="354" x2="790" y2="370"/>
+  <rect class="box" x="660" y="404" width="260" height="30" rx="6"/>
+  <text x="790" y="424" text-anchor="middle" class="label">Serverless NEG</text>
+  <line class="arrow" x1="790" y1="434" x2="790" y2="450"/>
 
-  <rect class="box" x="660" y="370" width="260" height="38" rx="6"/>
-  <text x="790" y="390" text-anchor="middle" class="label">Cloud Run</text>
-  <text x="790" y="403" text-anchor="middle" class="small">ingress: internal-and-LB only</text>
-  <line class="arrow" x1="790" y1="408" x2="790" y2="424"/>
+  <rect class="box" x="660" y="450" width="260" height="38" rx="6"/>
+  <text x="790" y="470" text-anchor="middle" class="label">Cloud Run</text>
+  <text x="790" y="483" text-anchor="middle" class="small">ingress: internal-and-LB only</text>
+  <line class="arrow" x1="790" y1="488" x2="790" y2="504"/>
 
-  <rect class="box" x="660" y="424" width="260" height="30" rx="6"/>
-  <text x="790" y="444" text-anchor="middle" class="label">Cloud Logging (automatic)</text>
+  <rect class="box" x="660" y="504" width="260" height="30" rx="6"/>
+  <text x="790" y="524" text-anchor="middle" class="label">Cloud Logging (automatic)</text>
 
-  <rect class="box secret" x="660" y="466" width="260" height="30" rx="6"/>
-  <text x="790" y="486" text-anchor="middle" class="label">Secret Manager → env.value_source</text>
-  <line class="arrow" x1="790" y1="466" x2="790" y2="408"/>
+  <rect class="box secret" x="660" y="546" width="260" height="30" rx="6"/>
+  <text x="790" y="566" text-anchor="middle" class="label">Secret Manager → env.value_source</text>
+  <line class="arrow" x1="790" y1="546" x2="790" y2="488"/>
 
   <!-- Legend -->
-  <rect class="box" x="20" y="516" width="900" height="128" rx="8"/>
-  <text x="35" y="538" class="title">Legend</text>
+  <rect class="box" x="20" y="596" width="900" height="148" rx="8"/>
+  <text x="35" y="618" class="title">Legend</text>
 
-  <rect class="ci" x="35" y="550" width="16" height="16" rx="3"/>
-  <text x="58" y="562" class="small">GitHub Actions (CI/CD)</text>
+  <rect class="box" x="35" y="630" width="16" height="16" rx="3"/>
+  <text x="58" y="642" class="small">Repo / generic infrastructure</text>
 
-  <rect class="oidc" x="35" y="574" width="16" height="16" rx="3"/>
-  <text x="58" y="586" class="small">OIDC trust (short-lived, per job run)</text>
+  <rect class="ci" x="35" y="654" width="16" height="16" rx="3"/>
+  <text x="58" y="666" class="small">GitHub Actions workflow</text>
 
-  <rect class="box" x="35" y="598" width="16" height="16" rx="3"/>
-  <text x="58" y="610" class="small">Generic infrastructure</text>
+  <rect class="oidc" x="35" y="678" width="16" height="16" rx="3"/>
+  <text x="58" y="690" class="small">OIDC trust (short-lived, per job run)</text>
 
-  <rect class="secret" x="270" y="550" width="16" height="16" rx="3"/>
-  <text x="293" y="562" class="small">Secret store</text>
+  <rect class="secret" x="290" y="630" width="16" height="16" rx="3"/>
+  <text x="313" y="642" class="small">Secret store</text>
 
-  <rect class="edge-azure" x="270" y="574" width="16" height="16" rx="3"/>
-  <text x="293" y="586" class="small">Azure edge / TLS</text>
+  <rect class="edge-azure" x="290" y="654" width="16" height="16" rx="3"/>
+  <text x="313" y="666" class="small">Azure edge / TLS</text>
 
-  <rect class="edge-aws" x="270" y="598" width="16" height="16" rx="3"/>
-  <text x="293" y="610" class="small">AWS edge / TLS</text>
+  <rect class="edge-aws" x="290" y="678" width="16" height="16" rx="3"/>
+  <text x="313" y="690" class="small">AWS edge / TLS</text>
 
-  <rect class="edge-gcp" x="450" y="550" width="16" height="16" rx="3"/>
-  <text x="473" y="562" class="small">GCP edge / TLS</text>
+  <rect class="edge-gcp" x="470" y="630" width="16" height="16" rx="3"/>
+  <text x="493" y="642" class="small">GCP edge / TLS</text>
 
-  <line class="arrow" x1="450" y1="580" x2="480" y2="580"/>
-  <text x="490" y="584" class="small">image pull / end-user traffic</text>
+  <line class="arrow" x1="470" y1="660" x2="500" y2="660"/>
+  <text x="510" y="664" class="small">image pull / end-user traffic</text>
 
-  <line class="arrow-dashed" x1="450" y1="604" x2="480" y2="604"/>
-  <text x="490" y="608" class="small">Terraform-managed (deploy-time only)</text>
+  <line class="arrow-dashed" x1="470" y1="684" x2="500" y2="684"/>
+  <text x="510" y="688" class="small">OIDC trust / Terraform-managed (deploy-time only)</text>
 
-  <text x="35" y="632" class="small">bootstrap/{azure,aws,gcp} creates the OIDC trust above once, by hand — see README.</text>
+  <text x="35" y="716" class="small">bootstrap/{azure,aws,gcp} creates the OIDC trust above once, by hand — see README.</text>
 </svg>

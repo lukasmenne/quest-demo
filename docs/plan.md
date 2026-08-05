@@ -202,6 +202,24 @@ applies on merge.
       `Via: 1.1 Caddy` header to the proxied request by default, which was silently
       tripping this. Fixed with `header_up -Via` in both Caddyfile `reverse_proxy` blocks
       to strip it before the request reaches the app.
+13. **Constraint #12's dpkg-lock fix didn't actually stop the problem, and it turned out the
+    `--force-confold` half of that fix had never made it into `cloud-init.yaml.tftpl` in the
+    first place** (applied live, but not written back to the repo despite what constraint
+    #12 says — an actual gap between what was verified and what was committed). Both were
+    only caught because the VMSS's `upgrade_mode = "Automatic"` recreated the instance on its
+    own after constraint #12's PR merged and applied, hitting the exact same symptom again on
+    a fresh instance running from the merged (but incomplete) fix:
+    - `cat /var/lib/cloud/instance/user-data.txt` on the freshly-recreated instance confirmed
+      the merged fix *had* reached it, but `apt-get install caddy` still hit `Could not get
+      lock /var/lib/dpkg/lock-frontend` — this time held by a bare `dpkg` process, not the
+      `apt-daily` timers. Stopping those timers first narrows the window but doesn't close
+      it: checking whether the lock is free and then running `apt-get` is a
+      check-then-act (TOCTOU) race regardless of who's contending for it. Replaced the
+      pre-check-and-wait loop with a bounded retry loop around the actual
+      `apt-get update && apt-get install` command, which is robust to the race because it
+      responds to real failures instead of trying to predict them.
+    - Re-added `-o Dpkg::Options::=--force-confold` (with `DEBIAN_FRONTEND=noninteractive`)
+      to `cloud-init.yaml.tftpl` itself this time, closing the gap from constraint #12.
 
 ## Phase 1 — Dockerfile
 

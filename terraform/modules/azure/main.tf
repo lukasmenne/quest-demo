@@ -1,18 +1,21 @@
+# denmarkeast (constraint #8's first fix for VM quota) turned out to support neither
+# Microsoft.OperationalInsights/workspaces nor Data Collection Rule Associations at all --
+# splitting logging into a second region (eastus) worked around the workspace half of that but
+# not the association half, since DCR associations aren't available there either (confirmed via
+# `az provider show -n Microsoft.Insights` and `az monitor diagnostic-settings categories list`
+# rather than guessing a third time). swedencentral is one of a handful of regions confirmed to
+# support Log Analytics workspaces, DCR associations, AND have open VM quota on this
+# subscription for Standard_B2ts_v2 (checked programmatically against the full SKU list) --
+# everything lives here now, no region split needed.
 resource "azurerm_resource_group" "quest" {
   name     = "quest"
-  location = "denmarkeast"
+  location = "swedencentral"
   tags     = var.tags
 }
 
-# denmarkeast (chosen for constraint #8's VM quota) doesn't support
-# Microsoft.OperationalInsights/workspaces at all -- confirmed via the resource provider's own
-# "available regions" list in the apply error. No region had both open VM quota and Log
-# Analytics support, so logging lives in eastus instead; DCR association across regions is
-# normal/supported (most real deployments centralize logging from VMs in many regions into one
-# workspace).
 resource "azurerm_log_analytics_workspace" "quest" {
-  name                = "log-quest-eus"
-  location            = "eastus"
+  name                = "log-quest-swc"
+  location            = azurerm_resource_group.quest.location
   resource_group_name = azurerm_resource_group.quest.name
   sku                 = "PerGB2018"
   retention_in_days   = 30
@@ -231,8 +234,11 @@ resource "azurerm_monitor_diagnostic_setting" "lb" {
   target_resource_id         = azurerm_lb.quest.id
   log_analytics_workspace_id = azurerm_log_analytics_workspace.quest.id
 
+  # The only two categories this specific LB resource actually reports -- confirmed via
+  # `az monitor diagnostic-settings categories list` against the live resource, after
+  # guessing wrong twice (LoadBalancerProbeHealthStatus, then LoadBalancerAlertEvent).
   enabled_log {
-    category = "LoadBalancerAlertEvent"
+    category = "LoadBalancerHealthEvent"
   }
 
   enabled_metric {
@@ -242,7 +248,7 @@ resource "azurerm_monitor_diagnostic_setting" "lb" {
 
 resource "azurerm_monitor_data_collection_rule" "quest" {
   name                = "quest-dcr"
-  location            = "eastus" # same reasoning as the Log Analytics workspace above
+  location            = azurerm_resource_group.quest.location
   resource_group_name = azurerm_resource_group.quest.name
   tags                = var.tags
 

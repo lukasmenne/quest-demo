@@ -67,15 +67,60 @@ I removed the PR comment for the security scan, it was too bulky, i'll list it a
 --- 2026-08-03 21:08:39 -0500 ---
 Just watch the pr checks
 
---- 2026-08-03 21:11:37 -0500 ---
-Add branch protections for main
-
---- 2026-08-03 21:12:58 -0500 ---
-Allow bypass I’m the only user
-
---- 2026-08-03 21:15:07 -0500 ---
-Add code owners requirement
-
 --- 2026-08-04 08:23:22 -0500 ---
-review the plan from the pc check
+review the plan from the pr check
+
+--- 2026-08-05 08:44:55 -0500 ---
+first explain every change that was made and why
+
+--- 2026-08-05 13:01:52 -0500 ---
+log analytics workspace doesn't work in the denmark region,
+and GCP is missing permissions for the secret
+
+--- 2026-08-05 13:07:14 -0500 ---
+╷
+│ Error: Error reading SecretVersion: googleapi: Error 403: Permission 'secretmanager.versions.access' denied on resource (or it may not exist). Remediate access with this Troubleshooter URL or share it with your administrator - https://console.cloud.google.com/iam-admin/troubleshooter/summary;errorId=CiQwMTlmZDMxOS1kMmYwLTdmNDQtOTAzMS0xNGJmYTMwZDc2MzASAA%3D%3D .
+│ Details:
+│ [
+│   {
+│     "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+│     "domain": "iam.googleapis.com",
+│     "metadata": {
+│       "error_info_id": "CiQwMTlmZDMxOS1kMmYwLTdmNDQtOTAzMS0xNGJmYTMwZDc2MzASAA==",
+│       "permission": "secretmanager.versions.access",
+│       "troubleshooter_url": "https://console.cloud.google.com/iam-admin/troubleshooter/summary;errorId=CiQwMTlmZDMxOS1kMmYwLTdmNDQtOTAzMS0xNGJmYTMwZDc2MzASAA%3D%3D"
+│     },
+│     "reason": "IAM_PERMISSION_DENIED"
+│   }
+│ ]
+│ 
+│   with module.gcp[0].google_secret_manager_secret_version.secret_word,
+│   on ../../terraform/modules/gcp/main.tf line 41, in resource "google_secret_manager_secret_version" "secret_word":
+│   41: resource "google_secret_manager_secret_version" "secret_word" {
+│ 
+
+https://github.com/lukasmenne/quest-demo/actions/runs/31033010125/job/92398100577
+
+--- 2026-08-05 13:30:20 -0500 ---
+diagnostic issues for the VMSS and GCP IAM
+https://github.com/lukasmenne/quest-demo/actions/runs/31033010125/job/92400119933
+
+--- 2026-08-05 14:18:07 -0500 ---
+AWS responded successfully, 
+Azure isn't responding,
+GCP mostly worked, but is missing a load balancer it seems, at least one that the app noticed
+
+aws_endpoint_url = "https://d99x1h7tm5jz.cloudfront.net"
+azure_endpoint_url = "https://20.91.190.171.sslip.io"
+gcp_endpoint_url = "https://quest-app-hqpitul4lq-uc.a.run.app"
+
+--- 2026-08-05 15:55:50 -0500 ---
+Azure is still not responding https://20.91.190.171.sslip.io/
+
+--- 2026-08-05 17:31:26 -0500 ---
+I tainted the secret, because it wasn't pulling in the new secret value from github secrets, but now i'm getting this error 
+
+Error: creating Secrets Manager Secret (quest/secret_word): operation error Secrets Manager: CreateSecret, https response error StatusCode: 400, RequestID: cbe468fa-ac1c-4fb1-a8bc-0e2249e802ea, InvalidRequestException: You can't create this secret because a secret with this name is already scheduled for deletion.
+
+
 

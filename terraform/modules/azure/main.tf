@@ -4,9 +4,15 @@ resource "azurerm_resource_group" "quest" {
   tags     = var.tags
 }
 
+# denmarkeast (chosen for constraint #8's VM quota) doesn't support
+# Microsoft.OperationalInsights/workspaces at all -- confirmed via the resource provider's own
+# "available regions" list in the apply error. No region had both open VM quota and Log
+# Analytics support, so logging lives in eastus instead; DCR association across regions is
+# normal/supported (most real deployments centralize logging from VMs in many regions into one
+# workspace).
 resource "azurerm_log_analytics_workspace" "quest" {
-  name                = "log-quest-dnk"
-  location            = azurerm_resource_group.quest.location
+  name                = "log-quest-eus"
+  location            = "eastus"
   resource_group_name = azurerm_resource_group.quest.name
   sku                 = "PerGB2018"
   retention_in_days   = 30
@@ -236,7 +242,7 @@ resource "azurerm_monitor_diagnostic_setting" "lb" {
 
 resource "azurerm_monitor_data_collection_rule" "quest" {
   name                = "quest-dcr"
-  location            = azurerm_resource_group.quest.location
+  location            = "eastus" # same reasoning as the Log Analytics workspace above
   resource_group_name = azurerm_resource_group.quest.name
   tags                = var.tags
 

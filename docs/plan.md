@@ -121,6 +121,24 @@ applies on merge.
    following its deprecation on October 1, 2025`, buried in the collapsed plan output. Fixed the
    workflow with `set -o pipefail` so a real plan error fails the check going forward, and
    replaced classic CDN with the Caddy + sslip.io design in constraint #4.
+10. **Two more errors surfaced on the next real apply, both only visible once actually applied:**
+    - Azure: `denmarkeast` (moved to in constraint #8 for VM quota) doesn't support
+      `Microsoft.OperationalInsights/workspaces` at all — confirmed via the resource provider's
+      own "available regions" list in the error. No single region has both open `Standard_B1s`
+      quota and Log Analytics support (checked programmatically against the full SKU list), so
+      the Log Analytics workspace and its Data Collection Rule now live in `eastus` while
+      everything else (VNet, LB, VMSS) stays in `denmarkeast`. Cross-region DCR association is
+      normal — most real deployments centralize logging from VMs in many regions into one
+      workspace.
+    - GCP: `google_secret_manager_secret_iam_member` and `google_secret_manager_secret_version`
+      both failed with `PERMISSION_DENIED` (`secretmanager.secrets.setIamPolicy` /
+      `secretmanager.versions.access`) even though the GitHub Actions service account has
+      `roles/editor`. This isn't a missing-API problem like constraint #8's — Secret Manager
+      deliberately excludes secret payload access and its own IAM policy management from the
+      basic Editor/Owner roles as a security default, for any account. Added
+      `roles/secretmanager.admin` to the CI service account's project roles in
+      `bootstrap/gcp/variables.tf` (needs a one-time re-apply of `bootstrap/gcp`, same as the
+      earlier `bootstrap/aws` re-apply).
 
 ## Phase 1 — Dockerfile
 

@@ -77,13 +77,39 @@ the Azure and AWS trust conditions use the new format, since numeric IDs can't b
 repo rename the way the plain owner/repo string could be.
 
 At plan/apply time, each GitHub Actions job presents its workflow's OIDC token to the matching
-cloud, which verifies the trust condition and hands back credentials valid only for that one job
-run. There is no long-lived secret to rotate, leak, or expire.
+cloud (the diagram's teal boxes), which verifies the trust condition and hands back credentials
+valid only for that one job run. There is no long-lived secret to rotate, leak, or expire.
 
-**Non-sensitive identifiers** (client IDs, role ARNs, workload identity provider names, state
-storage account names) are GitHub Actions **variables** (`vars.*`). The only real **secrets** are
-`SECRET_WORD` (the app's own env var) and a placeholder GCP credential used until GCP OIDC is
-fully wired per-environment.
+## GitHub repo configuration
+
+Everything the pipeline needs is either a GitHub Actions **variable** (`vars.*` — an identifier,
+safe to see in logs) or a **secret** (`secrets.*` — actual sensitive material). OIDC means
+identifiers are all this repo needs for cloud auth; there's exactly one real secret.
+
+**Variables** — all consumed by `.github/workflows/terraform.yml`:
+
+| Variable | Purpose |
+|---|---|
+| `ARM_CLIENT_ID` | Azure AD app registration's client ID — the OIDC login identity |
+| `ARM_SUBSCRIPTION_ID` | Target Azure subscription for every `azurerm_*` resource |
+| `ARM_TENANT_ID` | Azure AD tenant the app registration lives in |
+| `AZURE_TFSTATE_RESOURCE_GROUP` | Resource group holding the Terraform state storage account |
+| `AZURE_TFSTATE_STORAGE_ACCOUNT` | Storage account backing `backend "azurerm"` |
+| `AZURE_TFSTATE_CONTAINER` | Blob container in that storage account holding the state file |
+| `AWS_ROLE_ARN` | IAM role GitHub Actions assumes via OIDC for every `aws_*` resource |
+| `GCP_WORKLOAD_IDENTITY_PROVIDER` | Full resource name of the WIF provider that exchanges the OIDC token |
+| `GCP_SERVICE_ACCOUNT` | GCP service account impersonated after that exchange |
+
+All nine come from `bootstrap/{azure,aws,gcp}` outputs — nothing here is hand-picked.
+
+**Secrets:**
+
+| Secret | Purpose |
+|---|---|
+| `SECRET_WORD` | The app's own env var, exercised by `/secret_word` on every cloud |
+
+That's the only one. No cloud access key, client secret, or service-account key file exists in
+this repo's settings — OIDC replaced all of them.
 
 ## Day-2 operations
 

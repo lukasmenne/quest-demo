@@ -187,10 +187,11 @@ applies on merge.
       postinst saw a "modified" conffile and tried to interactively prompt with no TTY
       (`end of file on stdin at conffile prompt`) — fixed with
       `-o Dpkg::Options::=--force-confold` to keep our file non-interactively. Verified
-      the actual fix live via `az vmss run-command invoke` against the running instance
-      before writing it back into `cloud-init.yaml.tftpl`, since a `custom_data` change
-      alone doesn't retroactively re-run cloud-init on an already-provisioned VMSS
-      instance under `upgrade_mode = "Automatic"`.
+      both fixes live via `az vmss run-command invoke` against the running instance,
+      since a `custom_data` change alone doesn't retroactively re-run cloud-init on an
+      already-provisioned VMSS instance under `upgrade_mode = "Automatic"` — but only the
+      lock-wait fix actually made it back into `cloud-init.yaml.tftpl` at this point; the
+      `--force-confold` half didn't (see constraint #14).
     - Azure: once Caddy was up, `/loadbalanced` *still* failed, but a direct
       `docker exec`+`bin/004` call inside the container succeeded. Bisecting by hand
       (invoking `bin/004` with progressively more realistic header sets) found the real
@@ -202,12 +203,12 @@ applies on merge.
       `Via: 1.1 Caddy` header to the proxied request by default, which was silently
       tripping this. Fixed with `header_up -Via` in both Caddyfile `reverse_proxy` blocks
       to strip it before the request reaches the app.
-13. **Constraint #12's dpkg-lock fix didn't actually stop the problem, and it turned out the
+14. **Constraint #13's dpkg-lock fix didn't actually stop the problem, and it turned out the
     `--force-confold` half of that fix had never made it into `cloud-init.yaml.tftpl` in the
     first place** (applied live, but not written back to the repo despite what constraint
-    #12 says — an actual gap between what was verified and what was committed). Both were
+    #13 says — an actual gap between what was verified and what was committed). Both were
     only caught because the VMSS's `upgrade_mode = "Automatic"` recreated the instance on its
-    own after constraint #12's PR merged and applied, hitting the exact same symptom again on
+    own after constraint #13's PR merged and applied, hitting the exact same symptom again on
     a fresh instance running from the merged (but incomplete) fix:
     - `cat /var/lib/cloud/instance/user-data.txt` on the freshly-recreated instance confirmed
       the merged fix *had* reached it, but `apt-get install caddy` still hit `Could not get
@@ -219,7 +220,7 @@ applies on merge.
       `apt-get update && apt-get install` command, which is robust to the race because it
       responds to real failures instead of trying to predict them.
     - Re-added `-o Dpkg::Options::=--force-confold` (with `DEBIAN_FRONTEND=noninteractive`)
-      to `cloud-init.yaml.tftpl` itself this time, closing the gap from constraint #12.
+      to `cloud-init.yaml.tftpl` itself this time, closing the gap from constraint #13.
 
 ## Phase 1 — Dockerfile
 
@@ -345,7 +346,7 @@ referenced by the task definition's `secrets[]`.
 > headers through untouched, so both CloudFront headers survive; (b) add an **nginx sidecar** to
 > the task that sets `proxy_set_header X-Forwarded-Proto https` before proxying to 3000.
 
-**GCP** — Cloud Run v2 behind a real external HTTPS Load Balancer (see constraint #13 for why
+**GCP** — Cloud Run v2 behind a real external HTTPS Load Balancer (see constraint #12 for why
 Cloud Run's own built-in ingress wasn't enough). A `google_compute_region_network_endpoint_group`
 (`SERVERLESS`, pointed at the Cloud Run service) backs a `google_compute_backend_service`
 (`EXTERNAL_MANAGED`), fronted by a `google_compute_global_address` + managed SSL cert for a
@@ -356,7 +357,7 @@ HTTPS only. Cloud Run's `ingress` is restricted to `INGRESS_TRAFFIC_INTERNAL_LOA
 app is only reachable through the load balancer, not the default `*.run.app` URL — consistent with
 Azure (NSG) and AWS (ALB-only). `SECRET_WORD` from Secret Manager via `env.value_source`. Cloud
 Logging is automatic. A fresh project doesn't come with the IAM, Secret Manager, Cloud Run, or
-Compute Engine APIs enabled (constraints #8 and #13) — `google_project_service` enables all four,
+Compute Engine APIs enabled (constraints #8 and #12) — `google_project_service` enables all four,
 followed by a 30s `time_sleep` before anything that depends on them.
 
 ## Phase 4 — `env/dev` wiring

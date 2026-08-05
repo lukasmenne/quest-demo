@@ -22,9 +22,9 @@ variable "tags" {
 }
 
 variable "vm_size" {
-  description = "VMSS instance size"
+  description = "VMSS instance size. Standard_B1s has zero quota for this subscription in swedencentral (and every other region with open quota lacks Log Analytics/DCR support -- see main.tf); Standard_B2ts_v2 is the confirmed-available burstable size here instead."
   type        = string
-  default     = "Standard_B1s"
+  default     = "Standard_B2ts_v2"
 }
 
 variable "instance_count" {

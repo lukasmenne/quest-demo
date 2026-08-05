@@ -124,12 +124,8 @@ applies on merge.
 10. **Two more errors surfaced on the next real apply, both only visible once actually applied:**
     - Azure: `denmarkeast` (moved to in constraint #8 for VM quota) doesn't support
       `Microsoft.OperationalInsights/workspaces` at all — confirmed via the resource provider's
-      own "available regions" list in the error. No single region has both open `Standard_B1s`
-      quota and Log Analytics support (checked programmatically against the full SKU list), so
-      the Log Analytics workspace and its Data Collection Rule now live in `eastus` while
-      everything else (VNet, LB, VMSS) stays in `denmarkeast`. Cross-region DCR association is
-      normal — most real deployments centralize logging from VMs in many regions into one
-      workspace.
+      own "available regions" list in the error. First fix: split logging into `eastus` while
+      compute stayed in `denmarkeast` (this didn't fully work — see constraint #11).
     - GCP: `google_secret_manager_secret_iam_member` and `google_secret_manager_secret_version`
       both failed with `PERMISSION_DENIED` (`secretmanager.secrets.setIamPolicy` /
       `secretmanager.versions.access`) even though the GitHub Actions service account has
@@ -139,6 +135,30 @@ applies on merge.
       `roles/secretmanager.admin` to the CI service account's project roles in
       `bootstrap/gcp/variables.tf` (needs a one-time re-apply of `bootstrap/gcp`, same as the
       earlier `bootstrap/aws` re-apply).
+11. **The eastus/denmarkeast logging split from constraint #10 didn't fully work, and the LB
+    diagnostic log category was wrong a second time — both only found by checking ground truth
+    against the actual resources via `az`, not guessing again:**
+    - Azure: `azurerm_monitor_data_collection_rule_association` failed —
+      `UnsupportedFeature: Data Collection Rule Associations is not supported in the location of
+      the targeted parent resource` (the VMSS, in `denmarkeast`). Splitting the *workspace* into
+      `eastus` didn't help, because the association is scoped to the VM's own region, not the
+      workspace's. `az provider show -n Microsoft.Insights --query
+      "resourceTypes[?resourceType=='dataCollectionRuleAssociations'].locations"` gives the
+      real supported-region list — cross-referencing that against every region with open VM
+      quota (from constraint #8's SKU dump) found **no overlap at all** for `Standard_B1s`.
+      Broadened the SKU search across other small/cheap sizes and found `swedencentral` open for
+      `Standard_B2ts_v2` *and* on both the Log Analytics and DCR-association supported lists —
+      moved everything (resource group, VNet, LB, VMSS, workspace, DCR) into that one region,
+      removing the need for a region split at all.
+    - Azure: `azurerm_monitor_diagnostic_setting.lb`'s log category was wrong *again*
+      (`LoadBalancerAlertEvent` this time, after `LoadBalancerProbeHealthStatus` in constraint
+      #8) — `az monitor diagnostic-settings categories list --resource <lb-id>` against the
+      actual live LB shows the only real log category is `LoadBalancerHealthEvent`. Two wrong
+      guesses were enough to stop guessing and just query the resource directly.
+    - GCP: `google_cloud_run_v2_service_iam_member.invoker` failed with
+      `PERMISSION_DENIED: run.services.setIamPolicy` — the same pattern as constraint #10's
+      Secret Manager error: Cloud Run also excludes its own IAM policy management from
+      `roles/editor`. Added `roles/run.admin` alongside `roles/secretmanager.admin`.
 
 ## Phase 1 — Dockerfile
 
@@ -220,7 +240,7 @@ Each module outputs `endpoint_url`.
 **Azure** — VMSS + Standard Load Balancer, with Caddy on the VM terminating TLS (see constraint
 #4 above for why Container Apps was dropped, and constraints #8-9 for why Front Door and then
 classic CDN each didn't work out). Compute is a `azurerm_linux_virtual_machine_scale_set` (Ubuntu
-22.04, 1 instance, `Standard_B1s`, region `denmarkeast` — see constraint #8) whose NIC is a
+22.04, 1 instance, `Standard_B2ts_v2`, region `swedencentral` — see constraints #8 and #11) whose NIC is a
 genuine backend-pool member of a `azurerm_lb` (Standard SKU) — this is what makes the Azure IMDS
 `/metadata/loadbalancer` check truthfully return `{"loadbalancer": ...}`. Cloud-init installs
 Docker and runs the image bound to loopback only (`-p 127.0.0.1:3000:3000`, so it's unreachable

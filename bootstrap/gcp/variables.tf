@@ -35,7 +35,7 @@ variable "service_account_id" {
 }
 
 variable "project_roles" {
-  description = "IAM roles granted to the GitHub Actions service account on the project. Defaults to roles/editor for bootstrap convenience -- scope this down once the GCP-managed resources are known. roles/secretmanager.admin is required in addition to roles/editor: Secret Manager deliberately excludes secret payload access (secretmanager.versions.access) and its own IAM policy management (secretmanager.secrets.setIamPolicy) from the basic Editor/Owner roles as a security default, even for the project's own service accounts."
+  description = "IAM roles granted to the GitHub Actions service account on the project. Defaults to roles/editor for bootstrap convenience -- scope this down once the GCP-managed resources are known. roles/secretmanager.admin and roles/run.admin are required in addition to roles/editor: both Secret Manager and Cloud Run deliberately exclude their own IAM policy management (secretmanager.secrets.setIamPolicy, run.services.setIamPolicy) -- and Secret Manager also excludes secret payload access (secretmanager.versions.access) -- from the basic Editor/Owner roles as a security default, even for the project's own service accounts."
   type        = list(string)
-  default     = ["roles/editor", "roles/secretmanager.admin"]
+  default     = ["roles/editor", "roles/secretmanager.admin", "roles/run.admin"]
 }

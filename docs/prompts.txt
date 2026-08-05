@@ -66,9 +66,17 @@ I removed the PR comment for the security scan, it was too bulky, i'll list it a
 
 --- 2026-08-03 21:08:39 -0500 ---
 Just watch the pr checks
+--- 2026-08-03 21:11:37 -0500 ---
+Add branch protections for main
+
+--- 2026-08-03 21:12:58 -0500 ---
+Allow bypass I’m the only user
+
+--- 2026-08-03 21:15:07 -0500 ---
+Add code owners requirement
 
 --- 2026-08-04 08:23:22 -0500 ---
-review the plan from the pr check
+review the plan from the pc check
 
 --- 2026-08-05 08:44:55 -0500 ---
 first explain every change that was made and why

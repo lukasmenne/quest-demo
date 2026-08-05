@@ -66,6 +66,7 @@ I removed the PR comment for the security scan, it was too bulky, i'll list it a
 
 --- 2026-08-03 21:08:39 -0500 ---
 Just watch the pr checks
+
 --- 2026-08-03 21:11:37 -0500 ---
 Add branch protections for main
 

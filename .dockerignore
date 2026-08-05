@@ -1,0 +1,15 @@
+.git
+.github
+.claude
+docs
+terraform
+env
+bootstrap
+node_modules
+npm-debug.log
+*.md
+.terraform
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfvars

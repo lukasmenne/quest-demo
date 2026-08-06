@@ -221,6 +221,22 @@ applies on merge.
       responds to real failures instead of trying to predict them.
     - Re-added `-o Dpkg::Options::=--force-confold` (with `DEBIAN_FRONTEND=noninteractive`)
       to `cloud-init.yaml.tftpl` itself this time, closing the gap from constraint #13.
+15. **The ALB security group's `description` said "Allow inbound HTTP from CloudFront" but the
+    actual rule was `cidr_blocks = ["0.0.0.0/0"]`** — found during a documentation pass, not an
+    apply failure: the description was aspirational, never enforced. The ALB (and, in plain
+    HTTP, the app behind it) was reachable directly at its own public DNS name, completely
+    bypassing CloudFront, TLS, and the injected `X-Forwarded-Proto` header. Fixed in two layers,
+    matching AWS's own documented guidance for this exact scenario (a CIDR/prefix-list
+    restriction alone isn't sufficient, because that IP range is shared across every CloudFront
+    distribution on AWS, not just this one):
+    - The security group's `ingress` now uses `prefix_list_ids` against the AWS-managed
+      `com.amazonaws.global.cloudfront.origin-facing` prefix list instead of `0.0.0.0/0`.
+    - A `random_password` is injected as a second CloudFront origin custom header
+      (`X-Origin-Verify`, alongside the existing `X-Forwarded-Proto` one). The ALB listener's
+      `default_action` changed from `forward` to a flat `fixed-response` 403, with a new
+      `aws_lb_listener_rule` that only forwards requests whose `X-Origin-Verify` header matches
+      — so a request has to have both a CloudFront-range source IP *and* the right secret to
+      reach the app at all. Needed adding the `random` provider to `env/dev/provider.tf`.
 
 ## Phase 1 — Dockerfile
 
@@ -339,12 +355,17 @@ all) and adds `X-Forwarded-For`. `X-Forwarded-Proto: https` is injected as a Clo
 custom header**. Logs to CloudWatch via the `awslogs` driver. `SECRET_WORD` in Secrets Manager,
 referenced by the task definition's `secrets[]`.
 
-> **Risk — the one thing I cannot verify without an account.** ALB sets `X-Forwarded-Proto` from
-> its *own* listener protocol, which is HTTP here. It may overwrite CloudFront's injected header,
-> which would fail `/tls`. Verify with `curl <cloudfront-domain>/tls` immediately after the first
-> apply. Two documented fallbacks if it fails: (a) swap the ALB for an **NLB** — layer 4, passes
-> headers through untouched, so both CloudFront headers survive; (b) add an **nginx sidecar** to
-> the task that sets `proxy_set_header X-Forwarded-Proto https` before proxying to 3000.
+> **Risk, since resolved.** ALB sets `X-Forwarded-Proto` from its *own* listener protocol (HTTP
+> here), which could in principle overwrite CloudFront's injected header and fail `/tls`.
+> Confirmed live with `curl <cloudfront-domain>/tls` after the first real apply — it doesn't get
+> overwritten, `/tls` passes. Documented fallbacks if this ever regresses (e.g. an AWS provider
+> behavior change): (a) swap the ALB for an **NLB** — layer 4, passes headers through untouched;
+> (b) add an **nginx sidecar** to the task that sets `proxy_set_header X-Forwarded-Proto https`.
+
+The ALB's security group originally allowed inbound `0.0.0.0/0` on port 80 despite its
+`description` claiming "CloudFront only" — see constraint #15. It's now locked to CloudFront's
+managed prefix list plus a secret header (`X-Origin-Verify`) that CloudFront injects and an ALB
+listener rule checks, matching AWS's documented two-layer guidance for this exact setup.
 
 **GCP** — Cloud Run v2 behind a real external HTTPS Load Balancer (see constraint #12 for why
 Cloud Run's own built-in ingress wasn't enough). A `google_compute_region_network_endpoint_group`

@@ -4,6 +4,20 @@ data "aws_availability_zones" "available" {
   state = "available"
 }
 
+data "aws_ec2_managed_prefix_list" "cloudfront" {
+  name = "com.amazonaws.global.cloudfront.origin-facing"
+}
+
+# Second layer of origin lockdown: the prefix list above is CloudFront's IP range, but that
+# range is shared across every CloudFront distribution on AWS, not just this one. This secret
+# is injected as a custom origin header by CloudFront and checked by an ALB listener rule
+# below, so a request that merely originates from *a* CloudFront IP isn't enough -- it has to
+# have come through *this* distribution specifically.
+resource "random_password" "origin_verify" {
+  length  = 32
+  special = false
+}
+
 # --- Networking ---
 
 resource "aws_vpc" "quest" {
@@ -51,10 +65,10 @@ resource "aws_security_group" "alb" {
   tags        = var.tags
 
   ingress {
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    from_port       = 80
+    to_port         = 80
+    protocol        = "tcp"
+    prefix_list_ids = [data.aws_ec2_managed_prefix_list.cloudfront.id]
   }
 
   egress {
@@ -115,9 +129,35 @@ resource "aws_lb_listener" "http" {
   port              = 80
   protocol          = "HTTP"
 
+  # Default-deny: only requests carrying the CloudFront-injected secret header (matched by
+  # the rule below) get forwarded. Anything else -- including direct requests to the ALB's
+  # own DNS name, which the prefix-list-restricted security group above doesn't stop on its
+  # own -- gets a flat 403.
   default_action {
+    type = "fixed-response"
+
+    fixed_response {
+      content_type = "text/plain"
+      status_code  = "403"
+      message_body = "Forbidden"
+    }
+  }
+}
+
+resource "aws_lb_listener_rule" "from_cloudfront" {
+  listener_arn = aws_lb_listener.http.arn
+  priority     = 1
+
+  action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.quest.arn
+  }
+
+  condition {
+    http_header {
+      http_header_name = "X-Origin-Verify"
+      values           = [random_password.origin_verify.result]
+    }
   }
 }
 
@@ -265,6 +305,13 @@ resource "aws_cloudfront_distribution" "quest" {
     custom_header {
       name  = "X-Forwarded-Proto"
       value = "https"
+    }
+
+    # Checked by the aws_lb_listener_rule above -- proves the request came through this
+    # specific CloudFront distribution, not just any client inside CloudFront's IP range.
+    custom_header {
+      name  = "X-Origin-Verify"
+      value = random_password.origin_verify.result
     }
   }
 

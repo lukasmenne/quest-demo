@@ -133,3 +133,12 @@ Error: creating Secrets Manager Secret (quest/secret_word): operation error Secr
 
 
 
+--- 2026-08-06 07:50:06 -0500 ---
+what is the exact flow and ports from internet to the app for AWS
+
+--- 2026-08-06 07:57:06 -0500 ---
+So users can't go directly to the port 80 of the app?
+
+--- 2026-08-06 07:58:19 -0500 ---
+Yes fix that.
+
